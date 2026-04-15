@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/CallumVass/lattice/compare/lattice-v0.2.1...lattice-v0.2.2) (2026-04-15)
+
+
+### Bug Fixes
+
+* align npm publish workflow ([ab1efbe](https://github.com/CallumVass/lattice/commit/ab1efbef026c1f5f13b90f8c68e6b7699afbb010))
+
 ## [0.2.1](https://github.com/CallumVass/lattice/compare/lattice-v0.2.0...lattice-v0.2.1) (2026-04-15)
 
 
