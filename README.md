@@ -20,7 +20,7 @@ Register the npm package directly in `opencode.json`. OpenCode will download it:
 }
 ```
 
-Or build from source:
+If you are developing Lattice itself, build from source:
 
 ```bash
 git clone https://github.com/CallumVass/lattice.git ~/dev/lattice
@@ -29,18 +29,11 @@ npm install
 npm run build
 ```
 
-Register the plugin globally:
-
-```bash
-mkdir -p ~/.config/opencode/plugins
-ln -s ~/dev/lattice/dist/plugin/index.js ~/.config/opencode/plugins/lattice.js
-```
-
-Or register it per project. Example if you vendor this repo under `.lattice/lattice`:
+Then point OpenCode at the built plugin file:
 
 ```json
 {
-  "plugin": ["./.lattice/lattice/dist/plugin/index.js"]
+  "plugin": ["~/dev/lattice/dist/plugin/index.js"]
 }
 ```
 

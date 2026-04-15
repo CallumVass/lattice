@@ -14,6 +14,8 @@ OpenCode supports npm package extensions, so it will download the package automa
 
 ## Build From Source
 
+Only do this if you are developing Lattice itself.
+
 ```bash
 git clone https://github.com/CallumVass/lattice.git ~/dev/lattice
 cd ~/dev/lattice
@@ -21,26 +23,15 @@ npm install
 npm run build
 ```
 
-## Register The Plugin Globally
+## Use A Local Source Build
 
-This makes Lattice available in every OpenCode project.
-
-```bash
-mkdir -p ~/.config/opencode/plugins
-ln -s ~/dev/lattice/dist/plugin/index.js ~/.config/opencode/plugins/lattice.js
-```
-
-## Register The Plugin Per Project
-
-Add this to your project's `opencode.json`. This example assumes you vendored the repo at `.lattice/lattice`:
+After building from source, point OpenCode at the built plugin file:
 
 ```json
 {
-  "plugin": ["./.lattice/lattice/dist/plugin/index.js"]
+  "plugin": ["~/dev/lattice/dist/plugin/index.js"]
 }
 ```
-
-Use an absolute path or a path starting with `.`.
 
 ## Verify It Loaded
 
