@@ -1,9 +1,20 @@
 {
-  "name": "@lattice/opencode",
+  "name": "@callumvass/lattice",
   "version": "0.0.1",
   "type": "module",
   "description": "Composable agentic pipelines for OpenCode.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CallumVass/lattice.git"
+  },
+  "homepage": "https://github.com/CallumVass/lattice#readme",
+  "bugs": {
+    "url": "https://github.com/CallumVass/lattice/issues"
+  },
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "import": "./dist/index.js",
@@ -21,12 +32,17 @@
   ],
   "scripts": {
     "build": "tsup",
+    "prepack": "npm run build",
+    "release:check": "npm run check && npm run build && npm pack --dry-run",
     "typecheck": "tsc --noEmit",
     "lint": "biome check --error-on-warnings src/",
     "lint:fix": "biome check --fix --error-on-warnings src/",
     "knip": "knip",
     "test": "vitest run",
     "check": "npm run typecheck && npm run lint && npm run knip && npm run test"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "zod": "^4.1.12"

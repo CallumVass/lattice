@@ -12,6 +12,22 @@ Lattice handles stage orchestration, session reuse vs cold starts, skill injecti
 
 ## Install
 
+Install from npm in the project where you use OpenCode:
+
+```bash
+npm install @callumvass/lattice
+```
+
+Then register the plugin in `opencode.json`:
+
+```json
+{
+  "plugin": ["./node_modules/@callumvass/lattice/dist/plugin/index.js"]
+}
+```
+
+Or build from source:
+
 ```bash
 git clone https://github.com/CallumVass/lattice.git ~/dev/lattice
 cd ~/dev/lattice
@@ -58,7 +74,15 @@ Run one of these inside OpenCode:
 ```bash
 npm run check
 npm run build
+npm run release:check
 ```
+
+Releases use `release-please` on `main`. Conventional commits drive the release PR; merge that PR and CI publishes to npm via trusted publishing.
+
+GitHub setup:
+
+- `RELEASE_PLEASE_TOKEN`: PAT used by release-please so release PRs trigger CI
+- npm trusted publishing for this GitHub repo/package pair
 
 ## License
 
