@@ -12,17 +12,11 @@ Lattice handles stage orchestration, session reuse vs cold starts, skill injecti
 
 ## Install
 
-Install from npm in the project where you use OpenCode:
-
-```bash
-npm install @callumvass/lattice
-```
-
-Then register the plugin in `opencode.json`:
+Register the npm package directly in `opencode.json`. OpenCode will download it:
 
 ```json
 {
-  "plugin": ["./node_modules/@callumvass/lattice/dist/plugin/index.js"]
+  "plugin": ["@callumvass/lattice"]
 }
 ```
 
