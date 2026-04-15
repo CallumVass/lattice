@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/CallumVass/lattice/compare/lattice-v0.1.1...lattice-v0.1.2) (2026-04-15)
+
+
+### Bug Fixes
+
+* publish root release-please releases ([#7](https://github.com/CallumVass/lattice/issues/7)) ([a806380](https://github.com/CallumVass/lattice/commit/a806380e724f3de37f7ac2a4061fcb3dfe8fc8dd))
+
 ## [0.1.1](https://github.com/CallumVass/lattice/compare/lattice-v0.1.0...lattice-v0.1.1) (2026-04-15)
 
 
