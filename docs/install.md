@@ -2,17 +2,15 @@
 
 ## Install From npm
 
-```bash
-npm install @callumvass/lattice
-```
-
-Register it in your project's `opencode.json`:
+Register the npm package directly in your project's `opencode.json`:
 
 ```json
 {
-  "plugin": ["./node_modules/@callumvass/lattice/dist/plugin/index.js"]
+  "plugin": ["@callumvass/lattice"]
 }
 ```
+
+OpenCode supports npm package extensions, so it will download the package automatically.
 
 ## Build From Source
 
