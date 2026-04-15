@@ -14,7 +14,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       releases_created: ${{ steps.release.outputs.releases_created }}
-      package_released: ${{ steps.release.outputs['.--release_created'] }}
     steps:
       - name: Release please
         id: release
@@ -28,7 +27,7 @@ jobs:
 
   publish:
     needs: release-please
-    if: needs.release-please.outputs.releases_created == 'true' && needs.release-please.outputs.package_released == 'true'
+    if: needs.release-please.outputs.releases_created == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
