@@ -7,7 +7,7 @@ User pipelines override built-ins with the same `name`.
 ## Builder API
 
 ```ts
-import { pipeline, ref, stage } from "@lattice/opencode";
+import { pipeline, ref, stage } from "@callumvass/lattice";
 
 export default pipeline("quick-fix", {
   stages: [

@@ -1,6 +1,20 @@
 # Install
 
-## Build Lattice
+## Install From npm
+
+```bash
+npm install @callumvass/lattice
+```
+
+Register it in your project's `opencode.json`:
+
+```json
+{
+  "plugin": ["./node_modules/@callumvass/lattice/dist/plugin/index.js"]
+}
+```
+
+## Build From Source
 
 ```bash
 git clone https://github.com/CallumVass/lattice.git ~/dev/lattice
@@ -35,6 +49,7 @@ Use an absolute path or a path starting with `.`.
 Inside OpenCode, these commands should exist:
 
 - `/implement`
+- `/architecture`
 - `/review`
 - `/lattice-status`
 - `/lattice-abort`
