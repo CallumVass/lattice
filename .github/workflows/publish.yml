@@ -21,7 +21,6 @@ jobs:
         with:
           # Use a PAT so the release PR triggers CI under branch protection.
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          skip-labeling: true
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
