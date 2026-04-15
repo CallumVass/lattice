@@ -77,7 +77,7 @@ npm run build
 npm run release:check
 ```
 
-Releases use `release-please` on `main`. Conventional commits drive the release PR; merge that PR and CI publishes to npm via trusted publishing.
+Releases use `release-please` on `main`. Conventional commits drive the release PR; rebase-merge that PR and CI publishes to npm via trusted publishing.
 
 GitHub setup:
 
