@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/CallumVass/lattice/compare/lattice-v0.2.0...lattice-v0.2.1) (2026-04-15)
+
+
+### Bug Fixes
+
+* restore release-please labels ([2d7894a](https://github.com/CallumVass/lattice/commit/2d7894a415072fe1f9d58d5424223c25acbf7fc2))
+
 ## [0.2.0](https://github.com/CallumVass/lattice/compare/lattice-v0.1.2...lattice-v0.2.0) (2026-04-15)
 
 
