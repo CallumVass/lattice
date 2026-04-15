@@ -2,8 +2,9 @@
 
 Lattice is an [OpenCode](https://opencode.ai) plugin for running repeatable multi-agent workflows.
 
-It ships with two built-in pipelines:
+It ships with three built-in pipelines:
 
+- `architecture`: architecture review
 - `implement`: plan -> architecture review -> implement -> refactor -> code review -> review judge
 - `review`: code review -> review judge
 
@@ -38,6 +39,7 @@ Or register it per project. Example if you vendor this repo under `.lattice/latt
 Run one of these inside OpenCode:
 
 - `/implement fix the login redirect`
+- `/architecture identify the biggest architectural risks`
 - `/review audit the new billing changes`
 - `/lattice-status`
 

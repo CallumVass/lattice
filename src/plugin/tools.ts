@@ -17,12 +17,12 @@ interface ToolDeps {
 export function createLatticeRunTool(deps: ToolDeps): ToolDefinition {
   return tool({
     description:
-      "Start a lattice pipeline. Available pipelines: implement (plan → arch-review → implement → refactor → review), review (code-review → review-judge). " +
+      "Start a lattice pipeline. Available pipelines: architecture (architecture-review), implement (plan → arch-review → implement → refactor → review), review (code-review → review-judge). " +
       "The pipeline runs as a sequence of agent stages. Do NOT take any implementation actions yourself — the pipeline agents handle everything. " +
       "Do NOT call lattice_signal or lattice_status after starting — the pipeline advances automatically.",
     args: {
-      pipeline: tool.schema.string().describe("Pipeline name (e.g. 'implement', 'review')"),
-      goal: tool.schema.string().describe("What to implement or review (issue number, URL, or description)"),
+      pipeline: tool.schema.string().describe("Pipeline name (e.g. 'architecture', 'implement', 'review')"),
+      goal: tool.schema.string().describe("What to analyze, implement, or review (issue number, URL, or description)"),
     },
     async execute(args, context) {
       const { state, getFlattened, log } = deps;
@@ -114,7 +114,8 @@ export function createLatticeAbortTool(deps: ToolDeps): ToolDefinition {
 
 export function createLatticeRetryTool(deps: ToolDeps): ToolDefinition {
   return tool({
-    description: "Retry a paused lattice pipeline. Loops back to the implementor stage.",
+    description:
+      "Retry a paused lattice pipeline. Loops back to the nearest implementor stage, or retries the rejected stage.",
     args: {},
     async execute() {
       const { state, log } = deps;
