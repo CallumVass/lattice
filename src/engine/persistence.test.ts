@@ -1,0 +1,73 @@
+import { mkdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { PipelineInstance } from "../schema/index.js";
+import { findActiveInstance, loadInstance, saveInstance } from "./persistence.js";
+
+let projectDir: string;
+
+beforeEach(async () => {
+  projectDir = join(tmpdir(), `lattice-persist-${Date.now()}`);
+  await mkdir(projectDir, { recursive: true });
+});
+
+afterEach(async () => {
+  await rm(projectDir, { recursive: true, force: true });
+});
+
+function makeInstance(overrides: Partial<PipelineInstance> = {}): PipelineInstance {
+  return {
+    id: "run-1",
+    pipelineName: "implement",
+    goal: "implement feature #42",
+    status: "running",
+    currentStageIndex: 0,
+    stages: [{ id: "plan", agent: "planner", status: "pending" }],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+describe("persistence", () => {
+  it("saves and loads an instance", async () => {
+    const instance = makeInstance();
+    await saveInstance(projectDir, instance);
+
+    const loaded = await loadInstance(projectDir, "run-1");
+    expect(loaded).toEqual(instance);
+  });
+
+  it("returns undefined for missing instance", async () => {
+    const loaded = await loadInstance(projectDir, "nonexistent");
+    expect(loaded).toBeUndefined();
+  });
+
+  it("finds active running instance", async () => {
+    await saveInstance(projectDir, makeInstance({ id: "completed-1", status: "completed" }));
+    await saveInstance(projectDir, makeInstance({ id: "active-1", status: "running" }));
+
+    const active = await findActiveInstance(projectDir);
+    expect(active?.id).toBe("active-1");
+  });
+
+  it("finds active paused instance", async () => {
+    await saveInstance(projectDir, makeInstance({ id: "paused-1", status: "paused" }));
+
+    const active = await findActiveInstance(projectDir);
+    expect(active?.id).toBe("paused-1");
+  });
+
+  it("returns undefined when no active instances", async () => {
+    await saveInstance(projectDir, makeInstance({ id: "done-1", status: "completed" }));
+
+    const active = await findActiveInstance(projectDir);
+    expect(active).toBeUndefined();
+  });
+
+  it("returns undefined for missing state directory", async () => {
+    const active = await findActiveInstance(projectDir);
+    expect(active).toBeUndefined();
+  });
+});

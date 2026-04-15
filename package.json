@@ -1,0 +1,46 @@
+{
+  "name": "@lattice/opencode",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Composable agentic pipelines for OpenCode.",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./plugin": {
+      "import": "./dist/plugin/index.js",
+      "types": "./dist/plugin/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "agents",
+    "skills"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check --error-on-warnings src/",
+    "lint:fix": "biome check --fix --error-on-warnings src/",
+    "knip": "knip",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run lint && npm run knip && npm run test"
+  },
+  "dependencies": {
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.10",
+    "@opencode-ai/plugin": "latest",
+    "@types/node": "^25.6.0",
+    "knip": "^6.3.0",
+    "tsup": "^8.5.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.2"
+  },
+  "peerDependencies": {
+    "@opencode-ai/plugin": ">=1.4.0"
+  }
+}

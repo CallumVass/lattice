@@ -1,0 +1,35 @@
+import { z } from "zod/v4";
+
+const stageStatusSchema = z.enum(["pending", "running", "completed", "rejected", "skipped", "failed"]);
+
+export type StageStatus = z.infer<typeof stageStatusSchema>;
+
+const stageInstanceSchema = z.object({
+  id: z.string(),
+  agent: z.string(),
+  status: stageStatusSchema,
+  sessionId: z.string().optional(),
+  startedAt: z.string().datetime().optional(),
+  completedAt: z.string().datetime().optional(),
+  summary: z.string().optional(),
+  verdict: z.enum(["approve", "reject", "blocked"]).optional(),
+});
+
+export type StageInstance = z.infer<typeof stageInstanceSchema>;
+
+const pipelineStatusSchema = z.enum(["running", "completed", "paused", "failed"]);
+
+export type PipelineStatus = z.infer<typeof pipelineStatusSchema>;
+
+const pipelineInstanceSchema = z.object({
+  id: z.string(),
+  pipelineName: z.string(),
+  goal: z.string(),
+  status: pipelineStatusSchema,
+  currentStageIndex: z.number().int().min(0),
+  stages: z.array(stageInstanceSchema),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+
+export type PipelineInstance = z.infer<typeof pipelineInstanceSchema>;
