@@ -252,7 +252,7 @@ const server: Plugin = async ({ client, directory }) => {
           await sessions.injectPrompt(
             state.parentSessionId,
             "build",
-            `**Pipeline failed**\n\nStage "${currentStage?.id ?? "unknown"}" encountered an error: ${errMsg}\n\nRun \`/implement\` again to restart.`,
+            `**Pipeline failed**\n\nStage "${currentStage?.id ?? "unknown"}" encountered an error: ${errMsg}\n\nRun \`/${instance.pipelineName}\` again to restart.`,
           );
         }
       } finally {
