@@ -25,6 +25,6 @@ export default pipeline("implement", {
       completion: "idle",
       fork: true,
     }),
-    ref("review"),
+    ref("review-loop"),
   ],
 });

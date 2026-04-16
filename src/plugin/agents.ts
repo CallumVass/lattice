@@ -26,6 +26,7 @@ const READ_BASH: BashPermission = {
   "head *": "allow",
   "tail *": "allow",
   "git *": "allow",
+  "gh *": "allow",
   "dotnet *": "allow",
   "npm *": "allow",
   "npx *": "allow",
@@ -44,7 +45,6 @@ const WRITE_BASH: BashPermission = {
   "mkdir *": "allow",
   "cp *": "allow",
   "mv *": "allow",
-  "gh *": "allow",
 };
 
 const AGENTS: AgentDef[] = [
@@ -79,6 +79,18 @@ const AGENTS: AgentDef[] = [
     bash: READ_BASH,
   },
   { name: "review-judge", description: "Validates code review findings. Read-only.", canWrite: false, bash: READ_BASH },
+  {
+    name: "pr-review-judge",
+    description: "Validates code review findings for standalone PR review (never rejects). Read-only.",
+    canWrite: false,
+    bash: READ_BASH,
+  },
+  {
+    name: "pr-commenter",
+    description: "Posts validated code review findings to GitHub PRs via gh api. Read-only filesystem; gh allowed.",
+    canWrite: false,
+    bash: READ_BASH,
+  },
   {
     name: "investigator",
     description: "Explores codebases and produces structured technical documents (spikes, RFCs).",

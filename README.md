@@ -6,7 +6,7 @@ It ships with five built-in pipelines:
 
 - `architecture`: architecture review
 - `implement`: plan -> architecture review -> implement -> refactor -> code review -> review judge
-- `review`: code review -> review judge
+- `review`: code review -> review judge -> post validated findings as inline PR comments (read-only, never attempts fixes)
 - `investigate`: research a topic and write a spike/RFC markdown file (requires the [Atlassian MCP](https://github.com/sooperset/mcp-atlassian) for Confluence references)
 - `create-jira-issues`: draft vertical-slice Jira issues from PM docs and create them once approved (requires the [Atlassian MCP](https://github.com/sooperset/mcp-atlassian))
 

@@ -17,7 +17,7 @@ interface ToolDeps {
 export function createLatticeRunTool(deps: ToolDeps): ToolDefinition {
   return tool({
     description:
-      "Start a lattice pipeline. Available pipelines: architecture (architecture-review), implement (plan → arch-review → implement → refactor → review), review (code-review → review-judge), investigate (investigate a topic and write a spike/RFC), create-jira-issues (draft and create Jira issues via the Atlassian MCP). " +
+      "Start a lattice pipeline. Available pipelines: architecture (architecture-review), implement (plan → arch-review → implement → refactor → internal review-loop), review (code-review → review-judge → post validated findings as PR comments), investigate (investigate a topic and write a spike/RFC), create-jira-issues (draft and create Jira issues via the Atlassian MCP). " +
       "The pipeline runs as a sequence of agent stages. Do NOT take any implementation actions yourself — the pipeline agents handle everything. " +
       "Do NOT call lattice_signal or lattice_status after starting — the pipeline advances automatically.",
     args: {
@@ -87,10 +87,18 @@ export function createLatticeStatusTool(deps: ToolDeps): ToolDefinition {
 
 export function createLatticeAbortTool(deps: ToolDeps): ToolDefinition {
   return tool({
-    description: "Abort the currently running lattice pipeline.",
-    args: {},
-    async execute() {
+    description:
+      "Abort the currently running lattice pipeline. " +
+      "USER-INITIATED ONLY — do NOT call this in response to an injected pipeline status message. " +
+      "The `confirm` argument must be `true`.",
+    args: {
+      confirm: tool.schema.boolean().describe("Must be true. Set only when the user has explicitly asked to abort."),
+    },
+    async execute(args) {
       const { state, log } = deps;
+      if (args.confirm !== true) {
+        return "lattice_abort requires confirm: true. This tool is user-initiated only — the user will decide whether to abort.";
+      }
       const instance = state.activeInstance;
       if (!instance) return "No active pipeline to abort.";
 
@@ -115,10 +123,19 @@ export function createLatticeAbortTool(deps: ToolDeps): ToolDefinition {
 export function createLatticeRetryTool(deps: ToolDeps): ToolDefinition {
   return tool({
     description:
-      "Retry a paused lattice pipeline. Loops back to the nearest implementor stage, or retries the rejected stage.",
-    args: {},
-    async execute() {
+      "Retry a paused lattice pipeline. Loops back to the nearest implementor stage, or retries the rejected stage. " +
+      "USER-INITIATED ONLY — do NOT call this tool in response to an injected pipeline-paused status message. " +
+      "The `confirm` argument must be `true`; it exists to prevent accidental auto-retry when the orchestrator reads a pause notification.",
+    args: {
+      confirm: tool.schema
+        .boolean()
+        .describe("Must be true. Set only when the user has explicitly asked to retry (e.g. they ran /lattice-retry)."),
+    },
+    async execute(args) {
       const { state, log } = deps;
+      if (args.confirm !== true) {
+        return "lattice_retry requires confirm: true. This tool is user-initiated only — do not call it in response to a pipeline status message. The user will decide whether to retry.";
+      }
       const instance = state.activeInstance;
       if (!instance || instance.status !== "paused") return "No paused pipeline to retry.";
 
