@@ -20,6 +20,8 @@ export const stageDefinitionSchema = z.object({
   fork: z.boolean().default(false),
   skills: skillsConfigSchema.optional(),
   prompt: z.string().optional(),
+  /** Pause the pipeline after this stage completes — user must run /lattice-retry to advance. */
+  pauseAfter: z.boolean().default(false),
 });
 
 export type StageDefinition = z.infer<typeof stageDefinitionSchema>;

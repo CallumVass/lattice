@@ -13,6 +13,7 @@ export default pipeline("implement", {
       agent: "architecture-reviewer",
       completion: "idle",
       fork: true,
+      pauseAfter: true,
     }),
     stage("implement", {
       agent: "implementor",

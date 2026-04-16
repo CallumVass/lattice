@@ -125,11 +125,18 @@ export function createLatticeRetryTool(deps: ToolDeps): ToolDefinition {
     description:
       "Retry a paused lattice pipeline. Loops back to the nearest implementor stage, or retries the rejected stage. " +
       "USER-INITIATED ONLY — do NOT call this tool in response to an injected pipeline-paused status message. " +
-      "The `confirm` argument must be `true`; it exists to prevent accidental auto-retry when the orchestrator reads a pause notification.",
+      "The `confirm` argument must be `true`; it exists to prevent accidental auto-retry when the orchestrator reads a pause notification. " +
+      "Pass the user's clarifying reply as `response` so the retried stage can act on it.",
     args: {
       confirm: tool.schema
         .boolean()
         .describe("Must be true. Set only when the user has explicitly asked to retry (e.g. they ran /lattice-retry)."),
+      response: tool.schema
+        .string()
+        .optional()
+        .describe(
+          "The user's reply to the pause (e.g. the decision that unblocks the implementor, or the guidance after a review rejection). Injected into the next stage's prompt.",
+        ),
     },
     async execute(args) {
       const { state, log } = deps;
@@ -139,8 +146,20 @@ export function createLatticeRetryTool(deps: ToolDeps): ToolDefinition {
       const instance = state.activeInstance;
       if (!instance || instance.status !== "paused") return "No paused pipeline to retry.";
 
+      const response = args.response?.trim() || undefined;
       const rejectedIndex = instance.stages.findIndex((s) => s.status === "rejected");
-      if (rejectedIndex === -1) return "No rejected stage found.";
+
+      if (rejectedIndex === -1) {
+        // Approval gate: currentStageIndex is already pointing at the next pending stage. Just unpause.
+        instance.status = "running";
+        instance.updatedAt = new Date().toISOString();
+        instance.pendingResponse = response;
+        await cleanSignals(state.engineConfig.projectDir);
+        await saveInstance(state.engineConfig.projectDir, instance);
+        const resumingId = instance.stages[instance.currentStageIndex]?.id ?? "?";
+        log.info(`Resuming from gate at stage "${resumingId}"`);
+        return `Resuming pipeline at stage "${resumingId}".`;
+      }
 
       let retryIndex = -1;
       for (let i = rejectedIndex - 1; i >= 0; i--) {
@@ -166,6 +185,7 @@ export function createLatticeRetryTool(deps: ToolDeps): ToolDefinition {
       instance.status = "running";
       instance.currentStageIndex = retryIndex;
       instance.updatedAt = new Date().toISOString();
+      instance.pendingResponse = response;
 
       await cleanSignals(state.engineConfig.projectDir);
       await saveInstance(state.engineConfig.projectDir, instance);

@@ -14,6 +14,7 @@ describe("stage", () => {
       agent: "planner",
       completion: "plan_created",
       fork: false,
+      pauseAfter: false,
     });
   });
 

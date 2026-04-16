@@ -231,6 +231,26 @@ describe("advancePipeline", () => {
     expect(result.instance.stages[0]?.verdict).toBe("blocked");
   });
 
+  it("pauses at an approval gate and surfaces a gateReason", async () => {
+    const p = pipeline("impl", {
+      stages: [
+        stage("plan", { agent: "planner", completion: "tool_signal", pauseAfter: true }),
+        stage("build", { agent: "implementor", completion: "tool_signal" }),
+      ],
+    });
+    const flat = flattenPipeline(p, registryOf(p));
+
+    const { instance } = await startAndRun(flat, "build", engineConfig());
+    await writeSignal("plan", "complete");
+    const result = await checkAndAdvance(instance, flat, engineConfig());
+
+    expect(result.instance.status).toBe("paused");
+    expect(result.instance.stages[0]?.status).toBe("completed");
+    expect(result.instance.currentStageIndex).toBe(1);
+    expect(result.gateReason).toContain("approval");
+    expect(result.pauseReason).toBeUndefined();
+  });
+
   it("completes pipeline after last stage", async () => {
     const p = pipeline("review", {
       stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal" })],

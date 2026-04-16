@@ -14,7 +14,10 @@ export interface EngineConfig {
 
 export interface EngineResult {
   instance: PipelineInstance;
+  /** Set when a stage rejected/blocked — review loop semantics. */
   pauseReason?: string;
+  /** Set when a stage completed but requires user approval before advancing. */
+  gateReason?: string;
 }
 
 /** What the plugin should do to run the next stage. */
@@ -93,6 +96,7 @@ export function buildStageAction(instance: PipelineInstance, pipeline: Flattened
     slug: slugify(instance.goal),
     completedStages,
     currentStage: stageDef,
+    pendingResponse: instance.pendingResponse,
   });
 
   // fork: true → inject into main session (agent switching, context carries through)
@@ -119,6 +123,8 @@ export async function markStageRunning(
   if (childSessionId) {
     stageInstance.sessionId = childSessionId;
   }
+  // Response has now been delivered via the composed prompt — clear so later stages don't re-receive it.
+  instance.pendingResponse = undefined;
   instance.updatedAt = new Date().toISOString();
   await saveInstance(config.projectDir, instance);
 }
@@ -152,22 +158,23 @@ export async function checkStageCompletion(
 
 export async function advancePipeline(
   instance: PipelineInstance,
-  _pipeline: FlattenedPipeline,
+  pipeline: FlattenedPipeline,
   config: EngineConfig,
   completionResult: CompletionResult,
 ): Promise<EngineResult> {
   const currentStage = instance.stages[instance.currentStageIndex];
+  const currentStageDef = pipeline.stages[instance.currentStageIndex];
   if (!currentStage) {
     return { instance };
   }
 
-  const shouldPause = completionResult.verdict === "reject" || completionResult.verdict === "blocked";
-  currentStage.status = shouldPause ? "rejected" : "completed";
+  const shouldReject = completionResult.verdict === "reject" || completionResult.verdict === "blocked";
+  currentStage.status = shouldReject ? "rejected" : "completed";
   currentStage.completedAt = new Date().toISOString();
   currentStage.summary = completionResult.summary;
   currentStage.verdict = completionResult.verdict;
 
-  if (shouldPause) {
+  if (shouldReject) {
     instance.status = "paused";
     instance.updatedAt = new Date().toISOString();
     await saveInstance(config.projectDir, instance);
@@ -190,6 +197,19 @@ export async function advancePipeline(
   }
 
   instance.currentStageIndex = nextIndex;
+
+  // Approval gate: stage definition asked to pause after completing.
+  if (currentStageDef?.pauseAfter) {
+    const nextStageId = instance.stages[nextIndex]?.id ?? "next stage";
+    instance.status = "paused";
+    instance.updatedAt = new Date().toISOString();
+    await saveInstance(config.projectDir, instance);
+    return {
+      instance,
+      gateReason: `Stage "${currentStage.id}" complete — awaiting user approval before running "${nextStageId}".`,
+    };
+  }
+
   instance.updatedAt = new Date().toISOString();
   await saveInstance(config.projectDir, instance);
 
