@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0](https://github.com/CallumVass/lattice/compare/lattice-v0.4.1...lattice-v0.5.0) (2026-04-16)
+
+
+### Features
+
+* approval gates and user responses on retry ([fc1e96b](https://github.com/CallumVass/lattice/commit/fc1e96bee03cfdbdaa44cf6d90c441df62f6240b))
+
+
+### Bug Fixes
+
+* resolve agents/ dir correctly after bundling ([bb72bea](https://github.com/CallumVass/lattice/commit/bb72bea796b77d3410c21b3ad3b3bc9f70efdd8d))
+* **review:** resolve diff from PR number, URL, or branch ([930d857](https://github.com/CallumVass/lattice/commit/930d857761422d1352d8ad2ea8873a76264a4349))
+
 ## [0.4.1](https://github.com/CallumVass/lattice/compare/lattice-v0.4.0...lattice-v0.4.1) (2026-04-16)
 
 
