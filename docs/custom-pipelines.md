@@ -16,10 +16,12 @@ export default pipeline("quick-fix", {
       completion: "plan_complete",
       fork: false,
     }),
-    ref("review"),
+    ref("review-loop"),
   ],
 });
 ```
+
+Use `ref("review-loop")` — not `ref("review")` — when you want the reject-and-pause behavior that rewinds the implementor. The standalone `review` pipeline posts PR comments and completes; refing it inside an implementor loop is almost never what you want.
 
 ## Plain Object API
 
@@ -34,7 +36,7 @@ export default {
       completion: "plan_complete",
       fork: false,
     },
-    { type: "pipeline", pipeline: "review" },
+    { type: "pipeline", pipeline: "review-loop" },
   ],
 };
 ```
@@ -50,7 +52,7 @@ export default {
 
 ## Pipeline Composition
 
-Use `ref("review")` or `{ type: "pipeline", pipeline: "review" }` to inline another pipeline's stages.
+Use `ref("<pipeline-name>")` or `{ type: "pipeline", pipeline: "<pipeline-name>" }` to inline another pipeline's stages. Built-in names you can ref: `review-loop` (for implementor loops), `review` (only if you actually want the PR-comment poster), `architecture`.
 
 Nested pipelines are flattened at runtime. Circular references are rejected.
 

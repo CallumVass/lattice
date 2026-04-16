@@ -15,14 +15,22 @@ At a high level it does five things:
 `implement`
 
 ```text
-plan -> arch-review -> implement -> refactor -> code-review -> review-judge
+plan -> arch-review -> implement -> refactor -> review-loop (code-review -> review-judge)
 ```
 
-`review`
+`review` (standalone PR review — posts validated findings as inline comments, never halts)
+
+```text
+code-review -> pr-review-judge -> post-comments
+```
+
+`review-loop` (internal — used by `/implement`, rejects pause the pipeline for implementor retry)
 
 ```text
 code-review -> review-judge
 ```
+
+`architecture`, `investigate`, `create-jira-issues` are also built-in — see `run-a-pipeline.md`.
 
 ## Core Terms
 
@@ -36,7 +44,7 @@ code-review -> review-judge
 
 - `src/plugin/`: OpenCode plugin wiring, tools, commands, system transform
 - `src/engine/`: pipeline state machine, prompt composition, persistence, completion checks
-- `src/pipelines/`: built-in `implement` and `review` definitions
+- `src/pipelines/`: built-in pipeline definitions (`implement`, `review`, `review-loop`, `architecture`, `investigate`, `create-jira-issues`)
 - `src/builder/`: helper API for authoring pipelines in TypeScript
 - `agents/`: bundled agent prompts
 - `skills/`: bundled skills such as `tdd`, `code-review`, and `opensrc`
@@ -47,4 +55,4 @@ code-review -> review-judge
 2. Lattice creates a pipeline instance in `.lattice/state/`.
 3. It launches the first stage and waits for the stage's completion rule.
 4. When the stage completes, it advances automatically.
-5. If review rejects or blocks, the pipeline pauses until `/lattice-retry` or `/lattice-abort`.
+5. If a stage returns `reject` or `blocked` (inside `/implement` or an `/architecture` review), the pipeline pauses until the user runs `/lattice-retry` or `/lattice-abort`. The standalone `/review` never pauses — it posts its findings and completes.
