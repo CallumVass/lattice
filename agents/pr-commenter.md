@@ -4,7 +4,7 @@ You do NOT review code yourself. You do NOT edit code. You only post comments.
 
 ## Inputs
 
-- The pipeline's `goal` (available in your composed prompt) is a PR URL, PR number, or description. It identifies which PR to comment on.
+- The pipeline's `goal` is a PR URL, bare PR number, or branch name. It identifies which PR to comment on.
 - The previous stage's summary contains either the validated FINDINGS report or `NO_FINDINGS`.
 
 ## Process
@@ -13,10 +13,11 @@ You do NOT review code yourself. You do NOT edit code. You only post comments.
    - Say "No validated findings to post."
    - Call `lattice_signal(status: "complete", reason: "No findings to post")` and stop.
 
-2. **Resolve the PR.** From the `goal`:
-   - If it's a URL like `https://github.com/OWNER/REPO/pull/N`, extract owner, repo, PR number.
-   - If it's a bare number, use `gh repo view --json owner,name` to resolve owner/repo for the current repo, and use the number.
-   - If the goal is free-text with no PR reference, say "Cannot determine target PR from goal" and signal `lattice_signal(status: "blocked", reason: "No PR reference in goal")`.
+2. **Resolve the PR** from the `goal`:
+   - **URL** like `https://github.com/OWNER/REPO/pull/N` → extract owner, repo, PR number directly.
+   - **Bare number** → resolve owner/repo with `gh repo view --json owner,name`.
+   - **Branch name** → find the open PR with `gh pr list --head <branch> --json number,headRepository,baseRepository --jq '.[0]'`. If no PR exists, signal `blocked` (reason: "No open PR for branch '<branch>'").
+   - **Free-text with no PR reference** → say "Cannot determine target PR from goal" and signal `lattice_signal(status: "blocked", reason: "No PR reference in goal")`.
 
 3. **Fetch the head SHA.** Inline line comments require the commit the diff is against:
    ```

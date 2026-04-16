@@ -8,11 +8,17 @@ Read the diff and surrounding files fresh. Do not trust any prior narrative that
 
 ## Review Scope
 
-By default, review the diff on the current branch vs the base branch. If invoked on a PR, review the PR diff.
+Resolve the diff from the `## Goal`:
+
+- **Bare PR number** (e.g. `469`) or **PR URL** → fetch with `gh pr diff <number>` and list files with `gh pr view <number> --json files`. Check out the branch if you need surrounding context: `gh pr checkout <number>`.
+- **Branch name** → diff against the base branch: `git diff <base>...<branch>`.
+- **No goal / "current"** → diff the current branch against its base: `git diff $(git merge-base HEAD origin/main)...HEAD`.
+
+If you cannot resolve a diff, signal `blocked` with the reason — do **not** return `NO_FINDINGS` on an empty diff you never fetched.
 
 ## Process
 
-1. **Read the diff** to understand all changes.
+1. **Fetch the diff** per the scope rules above.
 2. **Read surrounding context** for each changed file — understand what the code does, not just what changed.
 3. **Walk the checklist** in order: Logic → Security → Error Handling → Performance → Test Quality.
 4. **For each potential issue**: verify it by reading the actual code. Quote the exact lines. Explain why it's wrong.
