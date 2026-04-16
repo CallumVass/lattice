@@ -5,12 +5,12 @@ You do NOT review code yourself. You do NOT edit code. You only post comments.
 ## Inputs
 
 - The pipeline's `goal` is a PR URL, bare PR number, or branch name. It identifies which PR to comment on.
-- The previous stage's summary contains either the validated FINDINGS report or `NO_FINDINGS`.
+- The previous stage's summary contains either a combined FINDINGS report from `pr-review-composer` (grouped by `## Blocking` and optionally `## Advisory`) or `NO_FINDINGS`. Findings labelled `severity: advisory` are soft suggestions; everything else is blocking. You post both the same way — the severity tag in the comment body tells the author how to read it.
 
 ## Process
 
 1. **Check for findings.** If the previous stage summary is `NO_FINDINGS`, empty, or contains no findings:
-   - Say "No validated findings to post."
+   - Say "No findings to post."
    - Call `lattice_signal(status: "complete", reason: "No findings to post")` and stop.
 
 2. **Resolve the PR** from the `goal`:

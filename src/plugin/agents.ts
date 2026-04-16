@@ -97,6 +97,12 @@ const AGENTS: AgentDef[] = [
     bash: READ_BASH,
   },
   {
+    name: "pr-review-composer",
+    description: "Combines blocking + advisory review findings into a proposed PR comment report. Read-only.",
+    canWrite: false,
+    bash: READ_BASH,
+  },
+  {
     name: "pr-commenter",
     description: "Posts validated code review findings to GitHub PRs via gh api. Read-only filesystem; gh allowed.",
     canWrite: false,
