@@ -4,7 +4,7 @@
 
 - `/implement <goal>`: full delivery pipeline
 - `/architecture <goal>`: architecture exploration pipeline
-- `/review <goal>`: review-only pipeline
+- `/review <PR URL or number>`: read-only PR review — reviews the target PR, validates findings, and posts the survivors as inline PR comments
 - `/investigate <goal>`: research a topic and write a spike/RFC
 - `/create-jira-issues <goal>`: draft and create Jira issues (needs the Atlassian MCP)
 - `/lattice-status`: show current pipeline status
@@ -24,20 +24,28 @@ The architecture reviewer explores the repo, ranks architectural friction, and f
 ## What `/implement` Does
 
 ```text
-plan -> arch-review -> implement -> refactor -> code-review -> review-judge
+plan -> arch-review -> implement -> refactor -> review-loop (code-review -> review-judge)
 ```
 
 - `plan` writes `.lattice/plans/<goal-slug>.md`
 - `implement` completes when every checklist item in that plan is checked
-- review stages finish by calling `lattice_signal`
+- The final stage is `review-loop`, an internal review pipeline where a `reject` from the judge pauses the run so the implementor can retry. This is different from the standalone `/review` — see below.
 
 ## What `/review` Does
 
 ```text
-code-review -> review-judge
+code-review -> review-judge -> post-comments
 ```
 
-Both review stages use `lattice_signal` to report their result.
+The standalone `/review` is a read-only PR review. It never attempts fixes and never halts on findings:
+
+- `code-review` walks a structured checklist and signals `complete` with its FINDINGS report.
+- `review-judge` (the `pr-review-judge` agent) validates each finding against the real code, drops anything it cannot verify, and signals `complete` with the survivors.
+- `post-comments` (the `pr-commenter` agent) posts each validated finding as an inline PR review comment via `gh api`. Findings without a file/line fall back to a general PR comment.
+
+Pass a PR URL or PR number as the goal, e.g. `/review 472` or `/review https://github.com/OWNER/REPO/pull/472`. The pipeline needs `gh` authenticated for the target repo.
+
+If you want review feedback that blocks an implementor loop (instead of posting comments), that happens automatically inside `/implement` via the internal `review-loop` pipeline — you do not invoke it directly.
 
 ## What `/investigate` Does
 

@@ -166,7 +166,7 @@ describe("createLatticeAbortTool", () => {
     await mkdir(signalsDir, { recursive: true });
     await writeFile(join(signalsDir, "plan.json"), JSON.stringify({ status: "complete" }));
 
-    const result = await createLatticeAbortTool(deps(state)).execute({}, undefined as never);
+    const result = await createLatticeAbortTool(deps(state)).execute({ confirm: true }, undefined as never);
 
     expect(result).toBe('Pipeline "implement" aborted.');
     expect(state.activeInstance).toBeUndefined();
@@ -214,7 +214,7 @@ describe("createLatticeRetryTool", () => {
       }),
     );
 
-    const result = await createLatticeRetryTool(deps(state)).execute({}, undefined as never);
+    const result = await createLatticeRetryTool(deps(state)).execute({ confirm: true }, undefined as never);
 
     expect(result).toBe('Retrying from stage "implement". The stage will begin automatically.');
     expect(state.activeInstance?.status).toBe("running");
@@ -232,6 +232,41 @@ describe("createLatticeRetryTool", () => {
       summary: undefined,
       verdict: undefined,
     });
+  });
+
+  it("refuses to retry without confirm: true", async () => {
+    const definition = pipeline("implement", {
+      stages: [stage("plan", { agent: "planner", completion: "plan_created" })],
+    });
+    const registry = registryOf(definition);
+    const state = makeState(
+      registry,
+      runningInstance({
+        status: "paused",
+        currentStageIndex: 0,
+        stages: [{ id: "plan", agent: "planner", status: "rejected", summary: "bad" }],
+      }),
+    );
+
+    const result = await createLatticeRetryTool(deps(state)).execute({ confirm: false }, undefined as never);
+
+    expect(result).toContain("requires confirm: true");
+    expect(state.activeInstance?.status).toBe("paused");
+  });
+});
+
+describe("createLatticeAbortTool (confirm gate)", () => {
+  it("refuses to abort without confirm: true", async () => {
+    const definition = pipeline("implement", {
+      stages: [stage("plan", { agent: "planner", completion: "plan_created" })],
+    });
+    const registry = registryOf(definition);
+    const state = makeState(registry, runningInstance());
+
+    const result = await createLatticeAbortTool(deps(state)).execute({ confirm: false }, undefined as never);
+
+    expect(result).toContain("requires confirm: true");
+    expect(state.activeInstance?.status).toBe("running");
   });
 });
 
