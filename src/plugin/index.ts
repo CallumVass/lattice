@@ -1,12 +1,19 @@
 import { join } from "node:path";
 import type { Plugin } from "@opencode-ai/plugin";
 import { loadConfig } from "../config/loader.js";
-import { cleanBlockedFile, cleanSignals } from "../engine/cleanup.js";
-import { advancePipeline, buildStageAction, checkStageCompletion, markStageRunning } from "../engine/engine.js";
-import { flattenPipeline } from "../engine/flattener.js";
-import { loadPipelines } from "../engine/loader.js";
-import { createOpencodeSessionProvider } from "../engine/opencode-session.js";
-import { findActiveInstance, saveInstance } from "../engine/persistence.js";
+import {
+  advancePipeline,
+  buildStageAction,
+  checkStageCompletion,
+  cleanBlockedFile,
+  cleanSignals,
+  createOpencodeSessionProvider,
+  findActiveInstance,
+  flattenPipeline,
+  loadPipelines,
+  markStageRunning,
+  saveInstance,
+} from "../engine/index.js";
 import { builtinPipelines } from "../pipelines/index.js";
 import { createOpencodeScoringProvider } from "../skills/opencode-scoring.js";
 import { scanSkills } from "../skills/scanner.js";

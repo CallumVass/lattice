@@ -88,7 +88,7 @@ async function scanDir(dir: string): Promise<DiscoveredSkill[]> {
   return skills;
 }
 
-export interface ScanOptions {
+interface ScanOptions {
   extraPaths?: string[];
   includeGlobal?: boolean;
   includeBundled?: boolean;

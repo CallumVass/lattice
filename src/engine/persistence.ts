@@ -14,15 +14,6 @@ export async function saveInstance(projectDir: string, instance: PipelineInstanc
   await writeFile(statePath(projectDir, instance.id), JSON.stringify(instance, null, 2));
 }
 
-export async function loadInstance(projectDir: string, instanceId: string): Promise<PipelineInstance | undefined> {
-  try {
-    const raw = await readFile(statePath(projectDir, instanceId), "utf-8");
-    return JSON.parse(raw) as PipelineInstance;
-  } catch {
-    return undefined;
-  }
-}
-
 export async function findActiveInstance(projectDir: string): Promise<PipelineInstance | undefined> {
   const dir = join(projectDir, STATE_DIR);
 
