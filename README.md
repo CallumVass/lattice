@@ -2,11 +2,13 @@
 
 Lattice is an [OpenCode](https://opencode.ai) plugin for running repeatable multi-agent workflows.
 
-It ships with three built-in pipelines:
+It ships with five built-in pipelines:
 
 - `architecture`: architecture review
 - `implement`: plan -> architecture review -> implement -> refactor -> code review -> review judge
 - `review`: code review -> review judge
+- `investigate`: research a topic and write a spike/RFC markdown file (requires the [Atlassian MCP](https://github.com/sooperset/mcp-atlassian) for Confluence references)
+- `create-jira-issues`: draft vertical-slice Jira issues from PM docs and create them once approved (requires the [Atlassian MCP](https://github.com/sooperset/mcp-atlassian))
 
 Lattice handles stage orchestration, session reuse vs cold starts, skill injection, and persisted pipeline state in `.lattice/`.
 
@@ -44,6 +46,8 @@ Run one of these inside OpenCode:
 - `/implement fix the login redirect`
 - `/architecture identify the biggest architectural risks`
 - `/review audit the new billing changes`
+- `/investigate event sourcing for the billing service`
+- `/create-jira-issues decompose the confluence doc into tickets`
 - `/lattice-status`
 
 ## Docs
