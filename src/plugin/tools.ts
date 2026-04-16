@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { ToolDefinition } from "@opencode-ai/plugin/tool";
 import { tool } from "@opencode-ai/plugin/tool";
 import { cleanSignals, saveInstance, startPipeline } from "../engine/index.js";
+import { count as countLearnings, resolveLearningsConfig } from "../learnings/index.js";
 import type { PluginState } from "./state.js";
 
 interface ToolDeps {
@@ -61,23 +62,38 @@ export function createLatticeStatusTool(deps: ToolDeps): ToolDefinition {
     description: "Show the current lattice pipeline status.",
     args: {},
     async execute() {
+      const lines: string[] = [];
       const instance = deps.state.activeInstance;
-      if (!instance) return "No active pipeline.";
 
-      const lines = [`Pipeline: ${instance.pipelineName} (${instance.status})`, `Goal: ${instance.goal}`];
-      for (const s of instance.stages) {
-        const marker =
-          s.status === "running"
-            ? "→"
-            : s.status === "completed"
-              ? "✓"
-              : s.status === "skipped"
-                ? "-"
-                : s.status === "rejected"
-                  ? "✗"
-                  : " ";
-        lines.push(`${marker} ${s.id} (${s.agent}): ${s.status}${s.summary ? ` — ${s.summary}` : ""}`);
+      if (instance) {
+        lines.push(`Pipeline: ${instance.pipelineName} (${instance.status})`, `Goal: ${instance.goal}`);
+        for (const s of instance.stages) {
+          const marker =
+            s.status === "running"
+              ? "→"
+              : s.status === "completed"
+                ? "✓"
+                : s.status === "skipped"
+                  ? "-"
+                  : s.status === "rejected"
+                    ? "✗"
+                    : " ";
+          lines.push(`${marker} ${s.id} (${s.agent}): ${s.status}${s.summary ? ` — ${s.summary}` : ""}`);
+        }
+      } else {
+        lines.push("No active pipeline.");
       }
+
+      const { enabled, storePath } = resolveLearningsConfig(deps.state.engineConfig);
+      if (enabled) {
+        const summary = await countLearnings({ projectDir: deps.state.engineConfig.projectDir, storePath });
+        lines.push(
+          summary.entries === 0
+            ? "Learnings: 0 entries"
+            : `Learnings: ${summary.entries} entries (last: ${summary.lastCapturedAt})`,
+        );
+      }
+
       return lines.join("\n");
     },
   });

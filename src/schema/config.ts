@@ -22,6 +22,13 @@ const pipelineOverrideSchema = z.object({
 
 export type PipelineOverride = z.infer<typeof pipelineOverrideSchema>;
 
+const learningsConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  storePath: z.string().default(".lattice/learnings.jsonl"),
+});
+
+export type LearningsConfig = z.infer<typeof learningsConfigSchema>;
+
 const latticeConfigSchema = z.object({
   agents: z.record(z.string(), agentOverrideSchema).optional(),
   pipelines: z.record(z.string(), pipelineOverrideSchema).optional(),
@@ -31,6 +38,7 @@ const latticeConfigSchema = z.object({
       max: z.number().int().positive().optional(),
     })
     .optional(),
+  learnings: learningsConfigSchema.optional(),
 });
 
 export type LatticeConfig = z.infer<typeof latticeConfigSchema>;

@@ -8,6 +8,7 @@ import {
   type SessionProvider,
   saveInstance,
 } from "../engine/index.js";
+import { captureLearningsFromReview } from "../learnings/index.js";
 import type { createLogger } from "./logger.js";
 import { completionMessage, failureMessage, gateMessage, pauseMessage } from "./notifications.js";
 import { executeStageAction, type StageRunnerDeps } from "./stage-runner.js";
@@ -72,6 +73,11 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
 
       const result = await advancePipeline(instance, flat, deps.state.engineConfig, completion);
       deps.state.activeInstance = result.instance;
+
+      const justCompleted = result.instance.stages.find((s) => s.id === currentStage.id);
+      if (justCompleted) {
+        await captureLearningsFromReview(result.instance, justCompleted, deps.state.engineConfig, deps.log);
+      }
 
       if (result.instance.status === "running" && deps.state.parentSessionId) {
         await executeStageAction(result.instance, deps.state.parentSessionId, flat, deps);
