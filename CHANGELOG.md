@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/CallumVass/lattice/compare/lattice-v0.5.0...lattice-v0.6.0) (2026-04-16)
+
+
+### Features
+
+* **review:** add advisory pass and approval gate before posting comments ([263c78a](https://github.com/CallumVass/lattice/commit/263c78a6a0268fba2ef44e3a5d351a0dafe95742))
+
 ## [0.5.0](https://github.com/CallumVass/lattice/compare/lattice-v0.4.1...lattice-v0.5.0) (2026-04-16)
 
 
