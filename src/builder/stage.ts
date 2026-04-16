@@ -6,6 +6,7 @@ export interface StageOptions {
   fork?: boolean;
   skills?: Partial<SkillsConfig>;
   prompt?: string;
+  pauseAfter?: boolean;
 }
 
 export function stage(id: string, options: StageOptions): StageDefinition {
@@ -15,6 +16,7 @@ export function stage(id: string, options: StageOptions): StageDefinition {
     agent: options.agent,
     completion: options.completion,
     fork: options.fork ?? false,
+    pauseAfter: options.pauseAfter ?? false,
     ...(options.skills && { skills: { dynamic: false, pinned: [], max: 4, ...options.skills } }),
     ...(options.prompt && { prompt: options.prompt }),
   };

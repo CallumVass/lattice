@@ -186,7 +186,9 @@ const server: Plugin = async ({ client, directory }) => {
       config.command["lattice-retry"] = {
         description: "Retry a paused lattice pipeline",
         template:
-          "The user has explicitly invoked /lattice-retry. Call the lattice_retry tool with confirm: true. Do not call any other lattice tools.",
+          "The user has explicitly invoked /lattice-retry. Call the lattice_retry tool with confirm: true. " +
+          "If the user's most recent message contains a decision, clarification, or guidance that answers the pause reason, pass it verbatim as the `response` argument so the retried stage receives it. " +
+          "Do not call any other lattice tools.",
       };
     },
 
@@ -254,6 +256,22 @@ const server: Plugin = async ({ client, directory }) => {
             ],
           });
           await sessions.injectPrompt(state.parentSessionId, "build", pauseMsg);
+        }
+
+        if (result.gateReason && state.parentSessionId) {
+          log.info(`Pipeline gated: ${result.gateReason}`);
+          const nextStage = result.instance.stages[result.instance.currentStageIndex];
+          const gateMsg = buildUserNotification({
+            title: `Pipeline "${instance.pipelineName}" paused — approval required`,
+            summary: `${result.gateReason}\n\nReview the outputs from the completed stages and tell the orchestrator how to proceed.`,
+            nextSteps: [
+              `**Approve as-is** — reply "proceed" (or similar); the orchestrator will run \`/lattice-retry\` and stage "${nextStage?.id ?? "next"}" will start.`,
+              "**Propose changes** — reply with your changes, questions answered, or extra requirements. The orchestrator will pass them through to the next stage via `/lattice-retry`.",
+              "**Cancel** with `/lattice-abort`.",
+              "**Inspect state** with `/lattice-status` before deciding.",
+            ],
+          });
+          await sessions.injectPrompt(state.parentSessionId, "build", gateMsg);
         }
 
         if (result.instance.status === "completed") {

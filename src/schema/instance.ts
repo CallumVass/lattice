@@ -30,6 +30,8 @@ const pipelineInstanceSchema = z.object({
   stages: z.array(stageInstanceSchema),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  /** User response supplied via /lattice-retry. Consumed by the next stage's composed prompt, then cleared. */
+  pendingResponse: z.string().optional(),
 });
 
 export type PipelineInstance = z.infer<typeof pipelineInstanceSchema>;

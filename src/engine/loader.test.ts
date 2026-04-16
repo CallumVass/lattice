@@ -64,7 +64,14 @@ describe("loadPipelines", () => {
       {
         name: "review",
         stages: [
-          { id: "builtin-review", type: "stage" as const, agent: "builtin", completion: "idle" as const, fork: false },
+          {
+            id: "builtin-review",
+            type: "stage" as const,
+            agent: "builtin",
+            completion: "idle" as const,
+            fork: false,
+            pauseAfter: false,
+          },
         ],
       },
     ];

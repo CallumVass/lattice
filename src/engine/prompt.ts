@@ -5,6 +5,7 @@ export interface PromptContext {
   slug: string;
   completedStages: StageInstance[];
   currentStage: StageDefinition;
+  pendingResponse?: string;
 }
 
 export function composePrompt(ctx: PromptContext): string {
@@ -17,6 +18,12 @@ export function composePrompt(ctx: PromptContext): string {
     for (const s of ctx.completedStages) {
       parts.push(`- **${s.id}** (${s.agent}): ${s.summary ?? "completed"}`);
     }
+  }
+
+  if (ctx.pendingResponse) {
+    parts.push(
+      `## User Response\nThe pipeline paused and the user has now replied. Treat this as the authoritative decision for this stage — act on it before doing anything else.\n\n${ctx.pendingResponse}`,
+    );
   }
 
   parts.push(`## Current Stage: ${ctx.currentStage.id}\nAgent: ${ctx.currentStage.agent}`);
