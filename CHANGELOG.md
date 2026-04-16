@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/CallumVass/lattice/compare/lattice-v0.4.0...lattice-v0.4.1) (2026-04-16)
+
+
+### Bug Fixes
+
+* let planner write its plan file ([6de741c](https://github.com/CallumVass/lattice/commit/6de741c18b57bef1d01e598963d770175e72dbd5))
+
 ## [0.4.0](https://github.com/CallumVass/lattice/compare/lattice-v0.3.1...lattice-v0.4.0) (2026-04-16)
 
 
