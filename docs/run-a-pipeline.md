@@ -4,7 +4,8 @@
 
 - `/implement <goal>`: full delivery pipeline
 - `/architecture <goal>`: architecture exploration pipeline
-- `/review <PR URL or number>`: read-only PR review — reviews the target PR, validates findings, and posts the survivors as inline PR comments
+- `/review <PR URL or number>`: read-only PR review — reviews the target PR, validates findings, runs an advisory architecture + refactor pass, proposes PR comments, pauses for your approval, then posts the survivors as inline PR comments
+- `/review-lite <PR URL or number>`: same as `/review` without the advisory pass — strict blocking-only findings
 - `/investigate <goal>`: research a topic and write a spike/RFC
 - `/create-jira-issues <goal>`: draft and create Jira issues (needs the Atlassian MCP)
 - `/lattice-status`: show current pipeline status
@@ -34,18 +35,28 @@ plan -> arch-review -> implement -> refactor -> review-loop (code-review -> revi
 ## What `/review` Does
 
 ```text
-code-review -> review-judge -> post-comments
+code-review -> review-judge -> advisory-review -> propose-comments (user approves) -> post-comments
 ```
 
-The standalone `/review` is a read-only PR review. It never attempts fixes and never halts on findings:
+The standalone `/review` is a read-only PR review. It never attempts fixes and never halts on blocking findings:
 
 - `code-review` walks a structured checklist and signals `complete` with its FINDINGS report.
 - `review-judge` (the `pr-review-judge` agent) validates each finding against the real code, drops anything it cannot verify, and signals `complete` with the survivors.
-- `post-comments` (the `pr-commenter` agent) posts each validated finding as an inline PR review comment via `gh api`. Findings without a file/line fall back to a general PR comment.
+- `advisory-review` (the `architecture-reviewer` agent) runs an additive pass over the same diff looking for architectural friction and refactor opportunities — advisory only, not blocking.
+- `propose-comments` (the `pr-review-composer` agent) merges the blocking survivors with the advisory notes, writes the proposed PR comment set to `.lattice/plans/`, and pauses the pipeline. Review the proposal, then run `/lattice-retry` to post — reply with any tweaks first and they'll be passed through.
+- `post-comments` (the `pr-commenter` agent) posts each approved comment as an inline PR review comment via `gh api`. Comments without a file/line fall back to a general PR comment.
 
 Pass a PR URL or PR number as the goal, e.g. `/review 472` or `/review https://github.com/OWNER/REPO/pull/472`. The pipeline needs `gh` authenticated for the target repo.
 
 If you want review feedback that blocks an implementor loop (instead of posting comments), that happens automatically inside `/implement` via the internal `review-loop` pipeline — you do not invoke it directly.
+
+## What `/review-lite` Does
+
+```text
+code-review -> review-judge -> propose-comments (user approves) -> post-comments
+```
+
+Same as `/review`, minus the `advisory-review` stage. Use it when you only want the checklist-driven blocking findings and none of the softer architectural/refactor notes.
 
 ## What `/investigate` Does
 

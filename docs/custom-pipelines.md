@@ -52,7 +52,7 @@ export default {
 
 ## Pipeline Composition
 
-Use `ref("<pipeline-name>")` or `{ type: "pipeline", pipeline: "<pipeline-name>" }` to inline another pipeline's stages. Built-in names you can ref: `review-loop` (for implementor loops), `review` (only if you actually want the PR-comment poster), `architecture`.
+Use `ref("<pipeline-name>")` or `{ type: "pipeline", pipeline: "<pipeline-name>" }` to inline another pipeline's stages. Built-in names you can ref: `review-loop` (for implementor loops), `review` or `review-lite` (only if you actually want the PR-comment poster), `architecture`, `investigate`, `create-jira-issues`.
 
 Nested pipelines are flattened at runtime. Circular references are rejected.
 

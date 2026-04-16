@@ -18,10 +18,16 @@ At a high level it does five things:
 plan -> arch-review -> implement -> refactor -> review-loop (code-review -> review-judge)
 ```
 
-`review` (standalone PR review — posts validated findings as inline comments, never halts)
+`review` (standalone PR review — posts validated findings as inline comments after user approval, never halts)
 
 ```text
-code-review -> pr-review-judge -> post-comments
+code-review -> review-judge -> advisory-review -> propose-comments (user approves) -> post-comments
+```
+
+`review-lite` (same as `review` but without the advisory architecture + refactor pass — strict blocking-only findings)
+
+```text
+code-review -> review-judge -> propose-comments (user approves) -> post-comments
 ```
 
 `review-loop` (internal — used by `/implement`, rejects pause the pipeline for implementor retry)
@@ -44,10 +50,10 @@ code-review -> review-judge
 
 - `src/plugin/`: OpenCode plugin wiring, tools, commands, system transform
 - `src/engine/`: pipeline state machine, prompt composition, persistence, completion checks
-- `src/pipelines/`: built-in pipeline definitions (`implement`, `review`, `review-loop`, `architecture`, `investigate`, `create-jira-issues`)
+- `src/pipelines/`: built-in pipeline definitions (`implement`, `review`, `review-lite`, `review-loop`, `architecture`, `investigate`, `create-jira-issues`)
 - `src/builder/`: helper API for authoring pipelines in TypeScript
 - `agents/`: bundled agent prompts
-- `skills/`: bundled skills such as `tdd`, `code-review`, and `opensrc`
+- `skills/`: bundled skills such as `tdd`, `code-review`, `opensrc`, and `writing-style`
 
 ## Typical Flow
 
