@@ -1,6 +1,8 @@
-// Skill facade — phase 2 will add selectSkills() here. For now, re-export
-// the provider/data types so external packages can implement a custom
-// ScoringProvider without reaching into submodules.
+// Skill facade — the single entry point plugin code uses for skill discovery,
+// scoring, and selection. Consumers outside the package should not reach past
+// this file into submodules.
 
-export type { DiscoveredSkill } from "./scanner.js";
+export { createOpencodeScoringProvider } from "./opencode-scoring.js";
+export { type DiscoveredSkill, scanSkills } from "./scanner.js";
 export type { ScoringContext, ScoringProvider } from "./scorer.js";
+export { selectSkills } from "./selector.js";
