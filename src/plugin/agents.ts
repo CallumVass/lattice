@@ -1,9 +1,20 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const AGENTS_DIR = join(__dirname, "..", "..", "agents");
+
+async function resolveAgentsDir(): Promise<string> {
+  // Built: dist/chunk-*.js → ../agents. Source: src/plugin/agents.ts → ../../agents.
+  const candidates = [join(__dirname, "..", "agents"), join(__dirname, "..", "..", "agents")];
+  for (const dir of candidates) {
+    try {
+      await access(join(dir, "planner.md"));
+      return dir;
+    } catch {}
+  }
+  throw new Error(`Could not locate agents/ dir. Tried: ${candidates.join(", ")}`);
+}
 
 type BashPermission = "allow" | "ask" | "deny" | Record<string, "allow" | "ask" | "deny">;
 
@@ -118,11 +129,12 @@ interface AgentConfig {
 
 export async function loadAgentConfigs(): Promise<Record<string, AgentConfig>> {
   const configs: Record<string, AgentConfig> = {};
+  const agentsDir = await resolveAgentsDir();
 
   for (const agent of AGENTS) {
     let prompt: string;
     try {
-      prompt = await readFile(join(AGENTS_DIR, `${agent.name}.md`), "utf-8");
+      prompt = await readFile(join(agentsDir, `${agent.name}.md`), "utf-8");
     } catch {
       continue;
     }
