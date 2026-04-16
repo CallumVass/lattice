@@ -51,7 +51,7 @@ const AGENTS: AgentDef[] = [
   {
     name: "planner",
     description: "Pre-implementation planner. Reads an issue, outputs a sequenced test plan.",
-    canWrite: false,
+    canWrite: true,
     bash: READ_BASH,
   },
   {
