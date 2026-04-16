@@ -15,9 +15,7 @@ import {
   saveInstance,
 } from "../engine/index.js";
 import { builtinPipelines } from "../pipelines/index.js";
-import { createOpencodeScoringProvider } from "../skills/opencode-scoring.js";
-import { scanSkills } from "../skills/scanner.js";
-import { scoreSkills } from "../skills/scorer.js";
+import { createOpencodeScoringProvider, scanSkills, selectSkills } from "../skills/index.js";
 import { loadAgentConfigs } from "./agents.js";
 import { createLogger } from "./logger.js";
 import type { PluginState } from "./state.js";
@@ -103,21 +101,23 @@ const server: Plugin = async ({ client, directory }) => {
   async function selectSkillsForStage(sessionId: string, stageId: string, agent: string, goal: string) {
     const flat = state.activeInstance ? getFlattened(state.activeInstance.pipelineName) : undefined;
     const stageDef = flat?.stages.find((s) => s.id === stageId);
-    const skillsConfig = stageDef?.skills;
-
-    if (!skillsConfig?.dynamic && (!skillsConfig?.pinned || skillsConfig.pinned.length === 0)) return;
-
-    const pinned = skillsConfig?.pinned ?? [];
-    const max = skillsConfig?.max ?? latticeConfig.skills?.max ?? 4;
 
     try {
-      if (skillsConfig?.dynamic && discoveredSkills.length > 0) {
-        const selected = await scoreSkills(discoveredSkills, { goal, agent, stageId }, pinned, max, scoringProvider);
-        skillStore.set(sessionId, selected);
-        log.info(`Skills for ${stageId}: ${selected.map((s) => s.name).join(", ") || "none"}`);
-      } else {
-        const pinnedSkills = discoveredSkills.filter((s) => pinned.includes(s.name));
-        skillStore.set(sessionId, pinnedSkills);
+      const selected = await selectSkills(
+        discoveredSkills,
+        {
+          skillsConfig: stageDef?.skills,
+          defaultMax: latticeConfig.skills?.max ?? 4,
+          goal,
+          agent,
+          stageId,
+        },
+        scoringProvider,
+      );
+      if (selected.length === 0) return;
+      skillStore.set(sessionId, selected);
+      if (stageDef?.skills?.dynamic) {
+        log.info(`Skills for ${stageId}: ${selected.map((s) => s.name).join(", ")}`);
       }
     } catch (err) {
       log.warn(`Skill selection failed for ${stageId}: ${err}`);

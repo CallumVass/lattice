@@ -1,5 +1,5 @@
 import type { LatticeConfig } from "../schema/index.js";
-import type { DiscoveredSkill } from "../skills/scanner.js";
+import type { DiscoveredSkill } from "../skills/index.js";
 
 /** Tracks which agent is active in each session. */
 export class AgentTracker {
