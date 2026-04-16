@@ -197,6 +197,14 @@ const server: Plugin = async ({ client, directory }) => {
     "experimental.chat.system.transform": buildSystemTransform(latticeConfig, agentTracker, skillStore),
 
     async event({ event }) {
+      if (event.type === "session.error") {
+        const ev = event as unknown as { properties?: { sessionID?: string; error?: { data?: { message?: string } } } };
+        const msg = ev.properties?.error?.data?.message;
+        if (msg && msg !== "UnknownError") {
+          log.error(`OpenCode session error (${ev.properties?.sessionID}): ${msg}`);
+        }
+        return;
+      }
       if (event.type !== "session.idle") return;
 
       const instance = state.activeInstance;
