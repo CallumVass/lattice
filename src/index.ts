@@ -1,3 +1,6 @@
+import plugin from "./plugin/index.js";
+
+export default plugin;
 export type { PipelineOptions, StageOptions } from "./builder/index.js";
 export { pipeline, ref, stage } from "./builder/index.js";
 export { loadConfig } from "./config/index.js";
