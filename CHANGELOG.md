@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.0](https://github.com/CallumVass/lattice/compare/lattice-v0.2.2...lattice-v0.3.0) (2026-04-16)
+
+
+### Features
+
+* **agents:** add investigator and jira-planner agents ([8ce1d02](https://github.com/CallumVass/lattice/commit/8ce1d02c6dca01af3ceff2c765ba5d7dc720b063))
+* **pipelines:** add investigate and create-jira-issues pipelines ([83a1afc](https://github.com/CallumVass/lattice/commit/83a1afc37fe189bf9f4631ab3f36850fb3c78b3e))
+* **skills:** add writing-style skill ([7f9e9e0](https://github.com/CallumVass/lattice/commit/7f9e9e01e1153ea95e6f296994a24ce899f0b25d))
+
 ## [0.2.2](https://github.com/CallumVass/lattice/compare/lattice-v0.2.1...lattice-v0.2.2) (2026-04-15)
 
 
