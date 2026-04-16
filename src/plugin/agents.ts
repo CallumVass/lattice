@@ -79,6 +79,18 @@ const AGENTS: AgentDef[] = [
     bash: READ_BASH,
   },
   { name: "review-judge", description: "Validates code review findings. Read-only.", canWrite: false, bash: READ_BASH },
+  {
+    name: "investigator",
+    description: "Explores codebases and produces structured technical documents (spikes, RFCs).",
+    canWrite: true,
+    bash: WRITE_BASH,
+  },
+  {
+    name: "jira-planner",
+    description: "Decomposes feature descriptions into Jira issues and creates them via the Atlassian MCP.",
+    canWrite: true,
+    bash: WRITE_BASH,
+  },
 ];
 
 interface AgentConfig {
