@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/CallumVass/lattice/compare/lattice-v0.6.0...lattice-v1.0.0) (2026-04-16)
+
+
+### ⚠ BREAKING CHANGES
+
+* internal engine functions (advancePipeline, startPipeline, buildStageAction, markStageRunning, checkStageCompletion, checkCompletion, composePrompt, findActiveInstance, loadInstance, saveInstance, flattenPipeline, loadPipelines) are no longer exported from the package root. Custom pipelines only need pipeline/stage/ref + schema types, which remain exported.
+
+### Code Refactoring
+
+* route plugin imports through engine facade and shrink public api ([e75e9f1](https://github.com/CallumVass/lattice/commit/e75e9f18a947fa35f3def9b34178aae8726e6982))
+
 ## [0.6.0](https://github.com/CallumVass/lattice/compare/lattice-v0.5.0...lattice-v0.6.0) (2026-04-16)
 
 
