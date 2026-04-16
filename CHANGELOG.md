@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/CallumVass/lattice/compare/lattice-v0.3.0...lattice-v0.3.1) (2026-04-16)
+
+
+### Bug Fixes
+
+* restore default plugin export from package root ([f081f9e](https://github.com/CallumVass/lattice/commit/f081f9e070ddb749bf9e8afa820c9c13a0026e66))
+
 ## [0.3.0](https://github.com/CallumVass/lattice/compare/lattice-v0.2.2...lattice-v0.3.0) (2026-04-16)
 
 
