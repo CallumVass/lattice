@@ -1,35 +1,12 @@
 import plugin from "./plugin/index.js";
 
 export default plugin;
+
+// Builder — for authoring custom pipeline files in `.lattice/pipelines/`.
 export type { PipelineOptions, StageOptions } from "./builder/index.js";
 export { pipeline, ref, stage } from "./builder/index.js";
-export { loadConfig } from "./config/index.js";
-export type {
-  CompletionContext,
-  CompletionResult,
-  EngineConfig,
-  EngineResult,
-  FlattenedPipeline,
-  PipelineRegistry,
-  PromptContext,
-  SessionProvider,
-  StageAction,
-} from "./engine/index.js";
-export {
-  advancePipeline,
-  buildStageAction,
-  checkCompletion,
-  checkStageCompletion,
-  composePrompt,
-  findActiveInstance,
-  flattenPipeline,
-  loadInstance,
-  loadPipelines,
-  markStageRunning,
-  saveInstance,
-  startPipeline,
-} from "./engine/index.js";
 
+// Schema types — for TypeScript authors of custom pipelines.
 export type {
   AgentOverride,
   CompletionMethod,
@@ -47,5 +24,5 @@ export type {
   StageStatus,
 } from "./schema/index.js";
 
-export type { DiscoveredSkill, ScanOptions, ScoredSkill, ScoringContext, ScoringProvider } from "./skills/index.js";
-export { scanSkills, scoreSkills } from "./skills/index.js";
+// Skill types — for implementing a custom ScoringProvider.
+export type { DiscoveredSkill, ScoringContext, ScoringProvider } from "./skills/index.js";

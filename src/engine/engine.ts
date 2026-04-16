@@ -12,7 +12,7 @@ export interface EngineConfig {
   latticeConfig: LatticeConfig;
 }
 
-export interface EngineResult {
+interface EngineResult {
   instance: PipelineInstance;
   /** Set when a stage rejected/blocked — review loop semantics. */
   pauseReason?: string;
@@ -21,7 +21,7 @@ export interface EngineResult {
 }
 
 /** What the plugin should do to run the next stage. */
-export interface StageAction {
+interface StageAction {
   type: "inject" | "subtask";
   agent: string;
   prompt: string;

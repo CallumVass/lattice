@@ -1,6 +1,4 @@
-import type { EngineConfig } from "../engine/engine.js";
-import type { FlattenedPipeline } from "../engine/flattener.js";
-import type { PipelineRegistry } from "../engine/loader.js";
+import type { EngineConfig, FlattenedPipeline, PipelineRegistry } from "../engine/index.js";
 import type { PipelineInstance } from "../schema/index.js";
 
 /** In-memory state shared across plugin hooks. */

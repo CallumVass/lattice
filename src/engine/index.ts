@@ -1,16 +1,17 @@
-export { type CompletionContext, type CompletionResult, checkCompletion } from "./completion.js";
+// Engine facade — the single entry point plugin code uses. Everything the
+// plugin runtime needs to drive a pipeline is re-exported here. Consumers
+// outside the package should not reach past this file into submodules.
+
+export { cleanBlockedFile, cleanSignals } from "./cleanup.js";
 export {
   advancePipeline,
   buildStageAction,
   checkStageCompletion,
   type EngineConfig,
-  type EngineResult,
   markStageRunning,
-  type StageAction,
   startPipeline,
 } from "./engine.js";
 export { type FlattenedPipeline, flattenPipeline } from "./flattener.js";
 export { loadPipelines, type PipelineRegistry } from "./loader.js";
-export { findActiveInstance, loadInstance, saveInstance } from "./persistence.js";
-export { composePrompt, type PromptContext } from "./prompt.js";
-export type { SessionProvider } from "./session.js";
+export { createOpencodeSessionProvider } from "./opencode-session.js";
+export { findActiveInstance, saveInstance } from "./persistence.js";

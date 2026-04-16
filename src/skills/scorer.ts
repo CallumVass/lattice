@@ -6,12 +6,6 @@ export interface ScoringContext {
   stageId: string;
 }
 
-export interface ScoredSkill {
-  skill: DiscoveredSkill;
-  score: number;
-  reason: string;
-}
-
 /** Abstraction over LLM call for testability. */
 export interface ScoringProvider {
   scoreSkills(prompt: string): Promise<string>;

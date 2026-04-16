@@ -2,9 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ToolDefinition } from "@opencode-ai/plugin/tool";
 import { tool } from "@opencode-ai/plugin/tool";
-import { cleanSignals } from "../engine/cleanup.js";
-import { startPipeline } from "../engine/engine.js";
-import { saveInstance } from "../engine/persistence.js";
+import { cleanSignals, saveInstance, startPipeline } from "../engine/index.js";
 import type { PluginState } from "./state.js";
 
 interface ToolDeps {

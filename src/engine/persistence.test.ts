@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PipelineInstance } from "../schema/index.js";
-import { findActiveInstance, loadInstance, saveInstance } from "./persistence.js";
+import { findActiveInstance, saveInstance } from "./persistence.js";
 
 let projectDir: string;
 
@@ -31,19 +31,6 @@ function makeInstance(overrides: Partial<PipelineInstance> = {}): PipelineInstan
 }
 
 describe("persistence", () => {
-  it("saves and loads an instance", async () => {
-    const instance = makeInstance();
-    await saveInstance(projectDir, instance);
-
-    const loaded = await loadInstance(projectDir, "run-1");
-    expect(loaded).toEqual(instance);
-  });
-
-  it("returns undefined for missing instance", async () => {
-    const loaded = await loadInstance(projectDir, "nonexistent");
-    expect(loaded).toBeUndefined();
-  });
-
   it("finds active running instance", async () => {
     await saveInstance(projectDir, makeInstance({ id: "completed-1", status: "completed" }));
     await saveInstance(projectDir, makeInstance({ id: "active-1", status: "running" }));

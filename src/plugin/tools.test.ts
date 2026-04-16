@@ -3,9 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pipeline, stage } from "../builder/index.js";
-import { flattenPipeline } from "../engine/flattener.js";
-import type { FlattenedPipeline } from "../engine/index.js";
-import type { PipelineRegistry } from "../engine/loader.js";
+import { type FlattenedPipeline, flattenPipeline, type PipelineRegistry } from "../engine/index.js";
 import type { PipelineInstance } from "../schema/index.js";
 import type { PluginState } from "./state.js";
 import {

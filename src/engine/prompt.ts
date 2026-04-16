@@ -1,6 +1,6 @@
 import type { StageDefinition, StageInstance } from "../schema/index.js";
 
-export interface PromptContext {
+interface PromptContext {
   goal: string;
   slug: string;
   completedStages: StageInstance[];
