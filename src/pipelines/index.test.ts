@@ -32,7 +32,7 @@ describe("builtinPipelines", () => {
     const review = builtinPipelines.find((p) => p.name === "review");
 
     expect(review).toBeDefined();
-    expect(review?.stages).toHaveLength(3);
+    expect(review?.stages).toHaveLength(5);
     expect(review?.stages[0]).toMatchObject({
       id: "code-review",
       agent: "code-reviewer",
@@ -44,12 +44,48 @@ describe("builtinPipelines", () => {
       agent: "pr-review-judge",
       completion: "tool_signal",
       fork: true,
+      pauseAfter: false,
     });
     expect(review?.stages[2]).toMatchObject({
+      id: "advisory-review",
+      agent: "architecture-reviewer",
+      completion: "tool_signal",
+      fork: true,
+    });
+    expect(review?.stages[3]).toMatchObject({
+      id: "propose-comments",
+      agent: "pr-review-composer",
+      completion: "tool_signal",
+      fork: true,
+      pauseAfter: true,
+    });
+    expect(review?.stages[4]).toMatchObject({
       id: "post-comments",
       agent: "pr-commenter",
       completion: "tool_signal",
       fork: true,
+    });
+  });
+
+  it("includes the review-lite pipeline (no advisory pass)", () => {
+    const reviewLite = builtinPipelines.find((p) => p.name === "review-lite");
+
+    expect(reviewLite).toBeDefined();
+    expect(reviewLite?.stages).toHaveLength(4);
+    expect(reviewLite?.stages.map((s) => (s as { id?: string }).id)).toEqual([
+      "code-review",
+      "review-judge",
+      "propose-comments",
+      "post-comments",
+    ]);
+    expect(reviewLite?.stages[2]).toMatchObject({
+      id: "propose-comments",
+      agent: "pr-review-composer",
+      pauseAfter: true,
+    });
+    expect(reviewLite?.stages[3]).toMatchObject({
+      id: "post-comments",
+      agent: "pr-commenter",
     });
   });
 

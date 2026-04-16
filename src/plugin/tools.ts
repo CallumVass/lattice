@@ -17,7 +17,7 @@ interface ToolDeps {
 export function createLatticeRunTool(deps: ToolDeps): ToolDefinition {
   return tool({
     description:
-      "Start a lattice pipeline. Available pipelines: architecture (architecture-review), implement (plan → arch-review → implement → refactor → internal review-loop), review (code-review → review-judge → post validated findings as PR comments), investigate (investigate a topic and write a spike/RFC), create-jira-issues (draft and create Jira issues via the Atlassian MCP). " +
+      "Start a lattice pipeline. Available pipelines: architecture (architecture-review), implement (plan → arch-review → implement → refactor → internal review-loop), review (code-review → judge → advisory → propose → user approval → post comments), review-lite (code-review → judge → propose → user approval → post comments; no advisory pass), investigate (investigate a topic and write a spike/RFC), create-jira-issues (draft and create Jira issues via the Atlassian MCP). " +
       "The pipeline runs as a sequence of agent stages. Do NOT take any implementation actions yourself — the pipeline agents handle everything. " +
       "Do NOT call lattice_signal or lattice_status after starting — the pipeline advances automatically.",
     args: {
