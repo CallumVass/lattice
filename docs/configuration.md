@@ -34,6 +34,10 @@ Project config overrides global config.
   "skills": {
     "paths": ["/path/to/extra/skills"],
     "max": 4
+  },
+  "learnings": {
+    "enabled": true,
+    "storePath": ".lattice/learnings.jsonl"
   }
 }
 ```
@@ -46,6 +50,14 @@ Project config overrides global config.
 - Stage skill settings per pipeline
 - Extra skill directories
 - Global max number of injected skills
+- Learnings capture (`learnings.enabled`, `learnings.storePath`)
+
+## Learnings
+
+After a `/review` run finishes posting comments, lattice writes one structured entry per posted finding to `learnings.storePath` (default `.lattice/learnings.jsonl`). The file is appended-to over time and added to `.gitignore` on the first capture.
+
+- `learnings.enabled` (default `true`) — toggle the capture hook. When `false`, no entries are written and `/lattice-status` omits the learnings line.
+- `learnings.storePath` (default `.lattice/learnings.jsonl`) — relative to the project root, or absolute.
 
 ## Notes
 

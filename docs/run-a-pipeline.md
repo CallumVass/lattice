@@ -50,6 +50,12 @@ Pass a PR URL or PR number as the goal, e.g. `/review 472` or `/review https://g
 
 If you want review feedback that blocks an implementor loop (instead of posting comments), that happens automatically inside `/implement` via the internal `review-loop` pipeline — you do not invoke it directly.
 
+### Learnings capture
+
+Once `post-comments` finishes successfully, lattice extracts each posted finding into `.lattice/learnings.jsonl` — one JSON entry per finding (severity, file/line, derived category, source PR, timestamp). The store grows over time and is auto-added to `.gitignore` on the first capture so it stays local. `/lattice-status` reports the current count and the last-captured timestamp.
+
+Capture is best-effort: a malformed finding or write error logs a warning but never fails the pipeline or the comments that were already posted. Disable it with `learnings.enabled: false` in `.lattice/config.jsonc` (see [configuration](configuration.md)).
+
 ## What `/review-lite` Does
 
 ```text

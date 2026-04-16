@@ -124,6 +124,62 @@ describe("createLatticeRunTool", () => {
 });
 
 describe("createLatticeStatusTool", () => {
+  it("appends a learnings count line when learnings are enabled", async () => {
+    const definition = pipeline("review", {
+      stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal" })],
+    });
+    const registry = registryOf(definition);
+    const state = makeState(registry);
+
+    const result = await createLatticeStatusTool(deps(state)).execute({}, undefined as never);
+
+    expect(result).toContain("No active pipeline.");
+    expect(result).toContain("Learnings: 0 entries");
+  });
+
+  it("shows captured learnings count and timestamp when entries exist", async () => {
+    const definition = pipeline("review", {
+      stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal" })],
+    });
+    const registry = registryOf(definition);
+    const state = makeState(registry);
+
+    const learningsPath = join(projectDir, ".lattice", "learnings.jsonl");
+    await mkdir(join(projectDir, ".lattice"), { recursive: true });
+    const entry = {
+      id: "11111111-1111-4111-8111-111111111111",
+      agent: "code-reviewer",
+      pattern: "Null check missing",
+      category: "auth",
+      severity: "blocking",
+      source: { stageId: "propose-comments", date: "2026-04-16T12:00:00.000Z" },
+      confidence: 0.9,
+      usageCount: 0,
+      feedbackScore: 0,
+      reinforcementCount: 0,
+      createdAt: "2026-04-16T12:00:00.000Z",
+      lastSeenAt: "2026-04-16T12:00:00.000Z",
+    };
+    await writeFile(learningsPath, `${JSON.stringify(entry)}\n`);
+
+    const result = await createLatticeStatusTool(deps(state)).execute({}, undefined as never);
+
+    expect(result).toContain("Learnings: 1 entries (last: 2026-04-16T12:00:00.000Z)");
+  });
+
+  it("omits the learnings line when capture is disabled", async () => {
+    const definition = pipeline("review", {
+      stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal" })],
+    });
+    const registry = registryOf(definition);
+    const state = makeState(registry);
+    state.engineConfig.latticeConfig = { learnings: { enabled: false, storePath: ".lattice/learnings.jsonl" } };
+
+    const result = await createLatticeStatusTool(deps(state)).execute({}, undefined as never);
+
+    expect(result).not.toContain("Learnings:");
+  });
+
   it("formats stage markers for multiple statuses", async () => {
     const definition = pipeline("review", {
       stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal" })],
