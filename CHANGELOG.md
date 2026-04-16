@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/CallumVass/lattice/compare/lattice-v0.3.1...lattice-v0.4.0) (2026-04-16)
+
+
+### Features
+
+* standalone /review posts PR comments, gate tools behind confirm ([0b98181](https://github.com/CallumVass/lattice/commit/0b98181c97d3a44ae79231cdfe500410cdc95d20))
+
 ## [0.3.1](https://github.com/CallumVass/lattice/compare/lattice-v0.3.0...lattice-v0.3.1) (2026-04-16)
 
 
