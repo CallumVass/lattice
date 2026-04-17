@@ -37,7 +37,10 @@ Project config overrides global config.
   },
   "learnings": {
     "enabled": true,
-    "storePath": ".lattice/learnings.jsonl"
+    "storePath": ".lattice/learnings.jsonl",
+    "agents": ["code-reviewer"],
+    "maxPerAgent": 5,
+    "confidenceThreshold": 0.5
   }
 }
 ```
@@ -50,14 +53,21 @@ Project config overrides global config.
 - Stage skill settings per pipeline
 - Extra skill directories
 - Global max number of injected skills
-- Learnings capture (`learnings.enabled`, `learnings.storePath`)
+- Learnings capture + injection (`learnings.enabled`, `learnings.storePath`, `learnings.agents`, `learnings.maxPerAgent`, `learnings.confidenceThreshold`)
 
 ## Learnings
 
 After a `/review` run finishes posting comments, lattice writes one structured entry per posted finding to `learnings.storePath` (default `.lattice/learnings.jsonl`). The file is appended-to over time and added to `.gitignore` on the first capture.
 
-- `learnings.enabled` (default `true`) — toggle the capture hook. When `false`, no entries are written and `/lattice-status` omits the learnings line.
+On subsequent runs the reviewer sees a synthetic `codebase-learnings` skill injected alongside normal skills, holding the top-ranked entries for that agent. It cites them back in new findings as `(learning: <id>)` so recurrences are tagged.
+
+Per-run aggregate stats (findings count, by-category breakdown, learnings injected) land in `.lattice/metrics.jsonl`. `/lattice-status` surfaces the trailing 5-run findings average so you can watch the loop trend down per category.
+
+- `learnings.enabled` (default `true`) — toggle capture AND injection. When `false`, no entries are written, no learnings skill is injected, and `/lattice-status` omits the learnings line.
 - `learnings.storePath` (default `.lattice/learnings.jsonl`) — relative to the project root, or absolute.
+- `learnings.agents` (default `["code-reviewer"]`) — which agents receive the synthetic learnings skill. Use `"*"` as an entry to cover every agent.
+- `learnings.maxPerAgent` (default `5`) — cap on entries rendered into the synthetic skill.
+- `learnings.confidenceThreshold` (default `0.5`) — entries below this are dropped before ranking.
 
 ## Notes
 

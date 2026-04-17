@@ -45,6 +45,7 @@ const server: Plugin = async ({ client, directory }) => {
     activeInstance: await findActiveInstance(directory),
     parentSessionId: undefined,
     engineConfig: { projectDir: directory, latticeConfig },
+    learningsInjected: 0,
   };
 
   function getFlattened(name: string) {
@@ -65,6 +66,7 @@ const server: Plugin = async ({ client, directory }) => {
     discoveredSkills,
     scoringProvider,
     skillStore,
+    state,
     log,
   };
 

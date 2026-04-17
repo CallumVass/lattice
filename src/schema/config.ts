@@ -25,6 +25,9 @@ export type PipelineOverride = z.infer<typeof pipelineOverrideSchema>;
 const learningsConfigSchema = z.object({
   enabled: z.boolean().default(true),
   storePath: z.string().default(".lattice/learnings.jsonl"),
+  agents: z.array(z.string()).default(["code-reviewer"]),
+  maxPerAgent: z.number().int().positive().default(5),
+  confidenceThreshold: z.number().min(0).max(1).default(0.5),
 });
 
 export type LearningsConfig = z.infer<typeof learningsConfigSchema>;

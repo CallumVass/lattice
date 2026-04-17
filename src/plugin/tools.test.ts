@@ -34,6 +34,7 @@ function makeState(registry: PipelineRegistry, activeInstance?: PipelineInstance
       projectDir,
       latticeConfig: {},
     },
+    learningsInjected: 0,
   };
 }
 
@@ -173,7 +174,15 @@ describe("createLatticeStatusTool", () => {
     });
     const registry = registryOf(definition);
     const state = makeState(registry);
-    state.engineConfig.latticeConfig = { learnings: { enabled: false, storePath: ".lattice/learnings.jsonl" } };
+    state.engineConfig.latticeConfig = {
+      learnings: {
+        enabled: false,
+        storePath: ".lattice/learnings.jsonl",
+        agents: ["code-reviewer"],
+        maxPerAgent: 5,
+        confidenceThreshold: 0.5,
+      },
+    };
 
     const result = await createLatticeStatusTool(deps(state)).execute({}, undefined as never);
 

@@ -124,6 +124,7 @@ function makeState(latticeConfig: LatticeConfig, registry: PipelineRegistry): Pl
     activeInstance: undefined,
     parentSessionId: "session-1",
     engineConfig,
+    learningsInjected: 0,
   };
 }
 
@@ -214,7 +215,18 @@ describe("review pipeline → learnings capture", () => {
 
   it("does not write the store when learnings.enabled is false", async () => {
     const registry = registryOf(reviewPipeline);
-    const state = makeState({ learnings: { enabled: false, storePath: ".lattice/learnings.jsonl" } }, registry);
+    const state = makeState(
+      {
+        learnings: {
+          enabled: false,
+          storePath: ".lattice/learnings.jsonl",
+          agents: ["code-reviewer"],
+          maxPerAgent: 5,
+          confidenceThreshold: 0.5,
+        },
+      },
+      registry,
+    );
     const handler = buildHandler(state, registry);
 
     const flat = flattenPipeline(reviewPipeline, registry);

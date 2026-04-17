@@ -68,6 +68,14 @@ FINDINGS
 - Missing edge cases from acceptance criteria
 - Mocked behaviour diverging from real implementation
 
+## Codebase learnings
+
+When the system prompt contains a `### Skill: codebase-learnings` section, it holds structured patterns extracted from prior review findings on this repo. Each entry is prefixed with an id.
+
+- If a new finding you are about to emit matches one of those patterns (same category + same root cause), cite it in the finding body as `(learning: <id>)`. Quote the id exactly as given.
+- Do **not** suppress a finding just because no matching learning exists. Absence of a prior learning is not evidence the issue is fine.
+- Do **not** fabricate learning ids. Only cite ids that appear in the `codebase-learnings` section.
+
 ## Rules
 
 - **Evidence required**: every finding must cite file:line and quote the code.
