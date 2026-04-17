@@ -64,6 +64,7 @@ export default pipeline("review", {
       completion: "tool_signal",
       fork: true,
       pauseAfter: true,
+      skills: { dynamic: false, pinned: ["pr-comments"], max: 1 },
     }),
     stage("post-comments", {
       agent: "pr-commenter",

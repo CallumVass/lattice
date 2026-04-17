@@ -25,6 +25,7 @@ export default pipeline("review-lite", {
       completion: "tool_signal",
       fork: true,
       pauseAfter: true,
+      skills: { dynamic: false, pinned: ["pr-comments"], max: 1 },
     }),
     stage("post-comments", {
       agent: "pr-commenter",
