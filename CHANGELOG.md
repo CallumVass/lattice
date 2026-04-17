@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/CallumVass/lattice/compare/lattice-v1.0.0...lattice-v1.1.0) (2026-04-17)
+
+
+### Features
+
+* **learnings:** capture structured findings from review pipeline ([7066fc8](https://github.com/CallumVass/lattice/commit/7066fc819a117bd9ca3523be739669f5366ab6d0))
+
 ## [1.0.0](https://github.com/CallumVass/lattice/compare/lattice-v0.6.0...lattice-v1.0.0) (2026-04-16)
 
 
