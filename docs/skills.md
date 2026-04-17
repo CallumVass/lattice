@@ -1,49 +1,51 @@
 # Skills
 
-Skills are markdown files that add targeted instructions to an agent's system prompt.
-
-Bundled skills in this repo:
-
-- `tdd`
-- `code-review`
-- `opensrc`
+Skills are markdown files that add targeted instructions to an agent's system prompt. Lattice uses OpenCode's native skill format.
 
 ## Where Lattice Looks
 
-Project directories:
+Project directories (in order, first wins):
 
 - `.opencode/skills/`
 - `.claude/skills/`
 - `.agents/skills/`
 
-Global directories:
+Global directories (searched after project dirs):
 
 - `~/.config/opencode/skills/`
 - `~/.claude/skills/`
 - `~/.agents/skills/`
 
-It also loads bundled skills from this package and any extra paths from config.
+Plus any extra paths you add via `skills.paths` in `.lattice/config.jsonc`.
 
 ## Precedence
 
-Earlier sources win by skill name.
-
-That means project skills override global skills, and global skills override bundled skills.
+First source wins by skill name. Project skills override global skills.
 
 ## Dynamic Selection
 
 Stages can request:
 
-- pinned skills: always included
-- dynamic skills: scored against the current goal, agent, and stage
+- **Pinned skills**: always included.
+- **Dynamic skills**: scored against the current goal, agent, and stage.
 
-Lattice keeps pinned skills, then fills remaining slots with the highest-scoring dynamic skills.
+Lattice keeps pinned skills, then fills remaining slots with the highest-scoring dynamic skills up to the stage's `max`.
 
-## Learnings skill
-
-When learnings capture is enabled (see `docs/configuration.md`), lattice renders stored findings for the current agent as a synthetic `codebase-learnings` skill and prepends it to the stage's skill list. It does not go through scanning or scoring — entries come from `.lattice/learnings.jsonl`, filtered by agent and confidence, capped at `learnings.maxPerAgent`. The reviewer cites matches back as `(learning: <id>)`.
+```ts
+stage("plan", {
+  agent: "planner",
+  completion: "plan_created",
+  skills: { dynamic: true, pinned: ["tdd"], max: 4 },
+}),
+```
 
 ## Authoring A Skill
+
+Create a folder under one of the skill paths with a `SKILL.md` inside:
+
+```
+~/.config/opencode/skills/my-framework/SKILL.md
+```
 
 ```md
 ---
@@ -56,4 +58,4 @@ description: Patterns for My Framework
 Instructions the agent should follow.
 ```
 
-If frontmatter is missing, the filename becomes the skill name.
+The `name` frontmatter must match the containing directory name. If frontmatter is missing, the filename becomes the skill name.

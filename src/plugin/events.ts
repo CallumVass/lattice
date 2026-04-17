@@ -8,8 +8,6 @@ import {
   type SessionProvider,
   saveInstance,
 } from "../engine/index.js";
-import { captureLearningsFromReview, recordRun, summarizeFindings } from "../learnings/index.js";
-import type { PipelineInstance } from "../schema/index.js";
 import type { createLogger } from "./logger.js";
 import { completionMessage, failureMessage, gateMessage, pauseMessage } from "./notifications.js";
 import { executeStageAction, type StageRunnerDeps } from "./stage-runner.js";
@@ -23,26 +21,6 @@ interface EventHandlerDeps extends StageRunnerDeps {
   getFlattened: (name: string) => FlattenedPipeline;
   sessions: SessionProvider;
   log: Logger;
-}
-
-async function recordPipelineMetrics(instance: PipelineInstance, deps: EventHandlerDeps): Promise<void> {
-  try {
-    const propose = instance.stages.find((s) => s.id === "propose-comments");
-    const { findingsCount, byCategory } = summarizeFindings(propose?.summary);
-    await recordRun(
-      {
-        instance: instance.id,
-        pipeline: instance.pipelineName,
-        findingsCount,
-        byCategory,
-        learningsInjected: deps.state.learningsInjected,
-        timestamp: new Date().toISOString(),
-      },
-      { projectDir: deps.state.engineConfig.projectDir },
-    );
-  } catch (err) {
-    deps.log.warn(`Metrics record failed: ${err}`);
-  }
 }
 
 /**
@@ -93,18 +71,6 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
       const result = await advancePipeline(instance, flat, deps.state.engineConfig, completion);
       deps.state.activeInstance = result.instance;
 
-      const justCompleted = result.instance.stages.find((s) => s.id === currentStage.id);
-      if (justCompleted) {
-        await captureLearningsFromReview(result.instance, justCompleted, deps.state.engineConfig, deps.log, {
-          killIndices: deps.state.pendingKills,
-          originalSummary: deps.state.originalProposeSummary,
-        });
-        if (justCompleted.id === "post-comments") {
-          deps.state.pendingKills = undefined;
-          deps.state.originalProposeSummary = undefined;
-        }
-      }
-
       if (result.instance.status === "running" && deps.state.parentSessionId) {
         await executeStageAction(result.instance, deps.state.parentSessionId, flat, deps);
       }
@@ -133,14 +99,11 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
         await cleanBlockedFile(deps.state.engineConfig.projectDir);
         deps.log.info(`Pipeline "${instance.pipelineName}" completed`);
 
-        await recordPipelineMetrics(result.instance, deps);
-
         if (deps.state.parentSessionId) {
           await deps.sessions.injectPrompt(deps.state.parentSessionId, "build", completionMessage(result.instance));
         }
 
         deps.state.activeInstance = undefined;
-        deps.state.learningsInjected = 0;
       }
     } catch (err) {
       deps.log.error(`Pipeline error: ${err}`);

@@ -1,10 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const BUNDLED_SKILLS_DIR = join(__dirname, "..", "..", "skills");
+import { join } from "node:path";
 
 export interface DiscoveredSkill {
   name: string;
@@ -91,11 +87,10 @@ async function scanDir(dir: string): Promise<DiscoveredSkill[]> {
 interface ScanOptions {
   extraPaths?: string[];
   includeGlobal?: boolean;
-  includeBundled?: boolean;
 }
 
 export async function scanSkills(projectDir: string, options: ScanOptions = {}): Promise<DiscoveredSkill[]> {
-  const { extraPaths = [], includeGlobal = true, includeBundled = true } = options;
+  const { extraPaths = [], includeGlobal = true } = options;
   const dirs: string[] = [];
 
   // Project-level
@@ -114,11 +109,6 @@ export async function scanSkills(projectDir: string, options: ScanOptions = {}):
   // Extra paths from config
   for (const extra of extraPaths) {
     dirs.push(extra);
-  }
-
-  // Bundled skills (lowest precedence — overridden by all above)
-  if (includeBundled) {
-    dirs.push(BUNDLED_SKILLS_DIR);
   }
 
   const allSkills: DiscoveredSkill[] = [];

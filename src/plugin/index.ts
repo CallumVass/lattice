@@ -1,10 +1,9 @@
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Plugin } from "@opencode-ai/plugin";
 import { loadConfig } from "../config/loader.js";
 import { createOpencodeSessionProvider, findActiveInstance, flattenPipeline, loadPipelines } from "../engine/index.js";
-import { builtinPipelines } from "../pipelines/index.js";
 import { createOpencodeScoringProvider, scanSkills } from "../skills/index.js";
-import { loadAgentConfigs } from "./agents.js";
 import { createEventHandler } from "./events.js";
 import { createLogger } from "./logger.js";
 import { selectSkillsForStage } from "./stage-runner.js";
@@ -12,20 +11,21 @@ import type { PluginState } from "./state.js";
 import { AgentTracker, buildSystemTransform, SkillStore } from "./system-transform.js";
 import {
   createLatticeAbortTool,
-  createLatticeInsightsTool,
-  createLatticeLearningFeedbackTool,
   createLatticeRetryTool,
   createLatticeRunTool,
   createLatticeSignalTool,
   createLatticeStatusTool,
 } from "./tools.js";
 
-const LATTICE_DIR = ".lattice";
+const PIPELINE_DIR_NAME = "lattice-pipelines";
 
 const server: Plugin = async ({ client, directory }) => {
   const latticeConfig = await loadConfig(directory);
-  const pipelinesDir = join(directory, LATTICE_DIR, "pipelines");
-  const registry = await loadPipelines(pipelinesDir, builtinPipelines);
+  const pipelineDirs = [
+    join(homedir(), ".config", "opencode", PIPELINE_DIR_NAME),
+    join(directory, ".opencode", PIPELINE_DIR_NAME),
+  ];
+  const registry = await loadPipelines(pipelineDirs);
   const sessions = createOpencodeSessionProvider(client, directory);
   const scoringProvider = createOpencodeScoringProvider(client, directory);
   const log = createLogger(client);
@@ -36,10 +36,7 @@ const server: Plugin = async ({ client, directory }) => {
   const discoveredSkills = await scanSkills(directory, {
     extraPaths: latticeConfig.skills?.paths,
   });
-  log.info(`Discovered ${discoveredSkills.length} skills`);
-
-  const agentConfigs = await loadAgentConfigs();
-  log.info(`Loaded ${Object.keys(agentConfigs).length} bundled agents`);
+  log.info(`Discovered ${discoveredSkills.length} skills, ${registry.size} pipelines`);
 
   const state: PluginState = {
     registry,
@@ -47,10 +44,6 @@ const server: Plugin = async ({ client, directory }) => {
     activeInstance: await findActiveInstance(directory),
     parentSessionId: undefined,
     engineConfig: { projectDir: directory, latticeConfig },
-    learningsInjected: 0,
-    pendingKills: undefined,
-    originalProposeSummary: undefined,
-    lastCompactionMerged: 0,
   };
 
   function getFlattened(name: string) {
@@ -93,18 +86,9 @@ const server: Plugin = async ({ client, directory }) => {
       lattice_abort: createLatticeAbortTool(toolDeps),
       lattice_retry: createLatticeRetryTool(toolDeps),
       lattice_signal: createLatticeSignalTool(toolDeps),
-      lattice_learning_feedback: createLatticeLearningFeedbackTool(toolDeps),
-      lattice_insights: createLatticeInsightsTool(toolDeps),
     },
 
     async config(config) {
-      config.agent = config.agent ?? {};
-      for (const [name, agentConfig] of Object.entries(agentConfigs)) {
-        if (!config.agent[name]) {
-          config.agent[name] = agentConfig as unknown as (typeof config.agent)[string];
-        }
-      }
-
       config.command = config.command ?? {};
       for (const name of state.registry.keys()) {
         config.command[name] = {
@@ -126,20 +110,6 @@ const server: Plugin = async ({ client, directory }) => {
         template:
           "The user has explicitly invoked /lattice-retry. Call the lattice_retry tool with confirm: true. " +
           "If the user's most recent message contains a decision, clarification, or guidance that answers the pause reason, pass it verbatim as the `response` argument so the retried stage receives it. " +
-          "If the user wrote `/lattice-retry kill:[ids]` (or similar, e.g. `kill:[2,4]`), parse the 1-indexed numbers and pass them as the `kill` argument (a number array). " +
-          "Do not call any other lattice tools.",
-      };
-      config.command["lattice-learning-feedback"] = {
-        description: "Give feedback on a captured learning (valid | invalid | stale)",
-        template:
-          "The user has invoked /lattice-learning-feedback. The arguments are `<id> <verdict>` where verdict is one of valid, invalid, stale. " +
-          "Call the lattice_learning_feedback tool with those arguments. Do not call any other lattice tools.",
-      };
-      config.command["lattice-insights"] = {
-        description: "Show a markdown report of the learning-loop insights",
-        template:
-          "The user has invoked /lattice-insights. Call the lattice_insights tool. " +
-          "If the user passed a date like `since:2026-03-01`, pass it as the `since` argument. " +
           "Do not call any other lattice tools.",
       };
     },
