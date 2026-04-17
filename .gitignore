@@ -3,3 +3,4 @@ dist/
 .lattice/
 *.tsbuildinfo
 .envrc
+docs/plans/
