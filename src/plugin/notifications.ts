@@ -45,7 +45,7 @@ export function pauseMessage(pipelineName: string, reason: string): string {
 export function gateMessage(pipelineName: string, reason: string, nextStageId: string | undefined): string {
   return buildUserNotification({
     title: `Pipeline "${pipelineName}" paused — approval required`,
-    summary: `${reason}\n\nReview the outputs from the completed stages and tell the orchestrator how to proceed.`,
+    summary: `${reason}\n\nRead the output above and tell the orchestrator how to proceed.`,
     nextSteps: [
       `**Approve as-is** — reply "proceed" (or similar); the orchestrator will run \`/lattice-retry\` and stage "${nextStageId ?? "next"}" will start.`,
       "**Propose changes** — reply with your changes, questions answered, or extra requirements. The orchestrator will pass them through to the next stage via `/lattice-retry`.",

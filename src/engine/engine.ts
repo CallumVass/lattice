@@ -204,9 +204,12 @@ export async function advancePipeline(
     instance.status = "paused";
     instance.updatedAt = new Date().toISOString();
     await saveInstance(config.projectDir, instance);
+    const header = `Stage "${currentStage.id}" complete — awaiting user approval before running "${nextStageId}".`;
+    const summary = currentStage.summary?.trim();
+    const gateReason = summary ? `${header}\n\n### Output from "${currentStage.id}"\n\n${summary}` : header;
     return {
       instance,
-      gateReason: `Stage "${currentStage.id}" complete — awaiting user approval before running "${nextStageId}".`,
+      gateReason,
     };
   }
 
