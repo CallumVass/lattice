@@ -7,11 +7,12 @@ export default pipeline("implement", {
       agent: "planner",
       completion: "plan_created",
       fork: false,
+      pauseAfter: true,
       skills: { dynamic: true, pinned: ["opensrc"], max: 4 },
     }),
     stage("arch-review", {
       agent: "architecture-reviewer",
-      completion: "idle",
+      completion: "tool_signal",
       fork: true,
       pauseAfter: true,
     }),
