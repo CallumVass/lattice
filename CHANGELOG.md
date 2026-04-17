@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/CallumVass/lattice/compare/lattice-v1.1.0...lattice-v1.2.0) (2026-04-17)
+
+
+### Features
+
+* **implement:** surface plan and arch critique at gate pauses ([aa2a151](https://github.com/CallumVass/lattice/commit/aa2a151947800c51a858db4e8daafa51475af0ea))
+* **review:** show proposed comments on pause and post in teammate voice ([b5583be](https://github.com/CallumVass/lattice/commit/b5583be485f7e574e4dc60235ccb09ac458615de))
+
 ## [1.1.0](https://github.com/CallumVass/lattice/compare/lattice-v1.0.0...lattice-v1.1.0) (2026-04-17)
 
 
