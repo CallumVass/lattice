@@ -38,7 +38,7 @@ Project config overrides global config.
   "learnings": {
     "enabled": true,
     "storePath": ".lattice/learnings.jsonl",
-    "agents": ["code-reviewer"],
+    "agents": ["code-reviewer", "planner"],
     "maxPerAgent": 5,
     "confidenceThreshold": 0.5
   }
@@ -59,13 +59,13 @@ Project config overrides global config.
 
 After a `/review` run finishes posting comments, lattice writes one structured entry per posted finding to `learnings.storePath` (default `.lattice/learnings.jsonl`). The file is appended-to over time and added to `.gitignore` on the first capture.
 
-On subsequent runs the reviewer sees a synthetic `codebase-learnings` skill injected alongside normal skills, holding the top-ranked entries for that agent. It cites them back in new findings as `(learning: <id>)` so recurrences are tagged.
+On subsequent runs the reviewer sees a synthetic `codebase-learnings` skill injected alongside normal skills, holding the top-ranked entries for that agent. It cites them back in new findings as `(learning: <id>)` so recurrences are tagged. The `/implement` planner also sees the skill and adds a `## Known Codebase Risks` section to the plan when any captured entries apply to the goal.
 
-Per-run aggregate stats (findings count, by-category breakdown, learnings injected) land in `.lattice/metrics.jsonl`. `/lattice-status` surfaces the trailing 5-run findings average so you can watch the loop trend down per category.
+Per-run aggregate stats (findings count, by-category breakdown, learnings injected) land in `.lattice/metrics.jsonl`. `/lattice-status` surfaces the trailing 5-run findings average overall and split per pipeline (review, implement) so you can watch the loop trend down per category and see whether the planner's pre-emption is keeping findings out of implement runs.
 
 - `learnings.enabled` (default `true`) — toggle capture AND injection. When `false`, no entries are written, no learnings skill is injected, and `/lattice-status` omits the learnings line.
 - `learnings.storePath` (default `.lattice/learnings.jsonl`) — relative to the project root, or absolute.
-- `learnings.agents` (default `["code-reviewer"]`) — which agents receive the synthetic learnings skill. Use `"*"` as an entry to cover every agent.
+- `learnings.agents` (default `["code-reviewer", "planner"]`) — which agents receive the synthetic learnings skill. Use `"*"` as an entry to cover every agent.
 - `learnings.maxPerAgent` (default `5`) — cap on entries rendered into the synthetic skill.
 - `learnings.confidenceThreshold` (default `0.5`) — entries below this are dropped before ranking.
 

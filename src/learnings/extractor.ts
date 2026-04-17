@@ -5,6 +5,12 @@ import type { LearningEntry, LearningSeverity } from "../schema/index.js";
 interface ExtractSource {
   stageId: string;
   goal?: string;
+  /**
+   * Origin-agent hint. Mostly informational — entries with severity
+   * `blocking` or `advisory` are shared across all agents (`"*"`) so planner
+   * + jira-drafter can see review-origin learnings. Negative entries (future
+   * phase) stay scoped to `code-reviewer`.
+   */
   agent?: string;
   now?: () => Date;
 }
@@ -103,10 +109,14 @@ function buildEntry(raw: RawFinding, source: ExtractSource): LearningEntry | und
   const severity = mapSeverity(raw.severity, raw.section);
   const confidence = raw.confidence ?? 0.8;
   const pr = extractPrFromGoal(source.goal);
+  // Blocking/advisory learnings should reach every downstream consumer
+  // (planner, jira-drafter, reviewer). Future negative entries scope back
+  // to their origin agent so they don't bleed across roles.
+  const agent = source.agent ?? (severity === "negative" ? "code-reviewer" : "*");
 
   return {
     id: randomUUID(),
-    agent: source.agent ?? "code-reviewer",
+    agent,
     pattern,
     description: descriptionParts.length ? descriptionParts.join("\n") : undefined,
     category: deriveCategory(raw),
