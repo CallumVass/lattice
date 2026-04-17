@@ -18,6 +18,10 @@ interface EngineResult {
   pauseReason?: string;
   /** Set when a stage completed but requires user approval before advancing. */
   gateReason?: string;
+  /** Rendered custom pause body from the completed stage's `pauseAfter.prompt`, if provided. */
+  customGatePrompt?: string;
+  /** Non-fatal diagnostics the plugin should log — e.g. an agent signalled outside its declared signals. */
+  diagnostics?: string[];
 }
 
 /** What the plugin should do to run the next stage. */
@@ -157,6 +161,15 @@ export async function advancePipeline(
     return { instance };
   }
 
+  const diagnostics: string[] = [];
+  if (currentStageDef?.completion === "tool_signal" && completionResult.signal && currentStageDef.signals) {
+    if (!currentStageDef.signals.includes(completionResult.signal)) {
+      diagnostics.push(
+        `Stage "${currentStage.id}" signalled "${completionResult.signal}" but its declared signals are: ${currentStageDef.signals.join(", ")}. Proceeding with the signal as given.`,
+      );
+    }
+  }
+
   const shouldReject = completionResult.verdict === "reject" || completionResult.verdict === "blocked";
   currentStage.status = shouldReject ? "rejected" : "completed";
   currentStage.completedAt = new Date().toISOString();
@@ -170,6 +183,7 @@ export async function advancePipeline(
     return {
       instance,
       pauseReason: `Stage "${currentStage.id}" ${completionResult.verdict}. ${completionResult.summary ?? ""}`.trim(),
+      ...(diagnostics.length > 0 && { diagnostics }),
     };
   }
 
@@ -182,7 +196,7 @@ export async function advancePipeline(
     instance.status = "completed";
     instance.updatedAt = new Date().toISOString();
     await saveInstance(config.projectDir, instance);
-    return { instance };
+    return { instance, ...(diagnostics.length > 0 && { diagnostics }) };
   }
 
   instance.currentStageIndex = nextIndex;
@@ -193,17 +207,31 @@ export async function advancePipeline(
     instance.status = "paused";
     instance.updatedAt = new Date().toISOString();
     await saveInstance(config.projectDir, instance);
+
+    const customPrompt =
+      typeof currentStageDef.pauseAfter === "object"
+        ? renderPausePrompt(currentStageDef.pauseAfter.prompt, currentStage.summary)
+        : undefined;
+
     const header = `Stage "${currentStage.id}" complete — awaiting user approval before running "${nextStageId}".`;
     const summary = currentStage.summary?.trim();
     const gateReason = summary ? `${header}\n\n### Output from "${currentStage.id}"\n\n${summary}` : header;
+
     return {
       instance,
       gateReason,
+      ...(customPrompt && { customGatePrompt: customPrompt }),
+      ...(diagnostics.length > 0 && { diagnostics }),
     };
   }
 
   instance.updatedAt = new Date().toISOString();
   await saveInstance(config.projectDir, instance);
 
-  return { instance };
+  return { instance, ...(diagnostics.length > 0 && { diagnostics }) };
+}
+
+function renderPausePrompt(template: string, summary: string | undefined): string {
+  const value = summary ?? "";
+  return template.replace(/\{\{\s*summary\s*\}\}/g, value).replace(/\{\{\s*reason\s*\}\}/g, value);
 }

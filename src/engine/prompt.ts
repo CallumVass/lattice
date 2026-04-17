@@ -1,4 +1,4 @@
-import type { StageDefinition, StageInstance } from "../schema/index.js";
+import type { SignalVerdict, StageDefinition, StageInstance } from "../schema/index.js";
 
 interface PromptContext {
   goal: string;
@@ -6,6 +6,14 @@ interface PromptContext {
   currentStage: StageDefinition;
   pendingResponse?: string;
 }
+
+const SIGNAL_LINES: Record<SignalVerdict, string> = {
+  complete: '`lattice_signal(status: "complete", reason: "<summary>")` — work finished successfully.',
+  approve: '`lattice_signal(status: "approve", reason: "<summary>")` — verdict: pass. The pipeline advances.',
+  reject: '`lattice_signal(status: "reject", reason: "<why>")` — verdict: fail. The pipeline pauses for user action.',
+  blocked:
+    '`lattice_signal(status: "blocked", reason: "<why>")` — you cannot continue. The pipeline pauses for user action.',
+};
 
 export function composePrompt(ctx: PromptContext): string {
   const parts: string[] = [];
@@ -33,13 +41,13 @@ export function composePrompt(ctx: PromptContext): string {
   }
 
   if (ctx.currentStage.completion === "tool_signal") {
+    const signals = ctx.currentStage.signals;
+    const lines = (signals ?? ["complete"]).map((s) => `- ${SIGNAL_LINES[s]}`).join("\n");
+    const one = signals?.length === 1;
     parts.push(
-      "**CRITICAL**: When finished, call the `lattice_signal` tool with your verdict: " +
-        '`lattice_signal(status: "complete")` for success, ' +
-        '`lattice_signal(status: "approve")` to approve, ' +
-        '`lattice_signal(status: "reject", reason: "...")` to reject, ' +
-        'or `lattice_signal(status: "blocked", reason: "...")` if blocked. ' +
-        "The pipeline cannot advance until you call this tool.",
+      `**CRITICAL**: When finished, call the \`lattice_signal\` tool. ${
+        one ? "The only valid outcome for this stage is:" : "Valid outcomes for this stage are:"
+      }\n\n${lines}\n\nThe pipeline cannot advance until you call this tool.`,
     );
   }
 

@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import type { CompletionMethod } from "../schema/index.js";
+import type { CompletionMethod, SignalVerdict } from "../schema/index.js";
 
 export interface CompletionContext {
   signalsDir: string;
@@ -10,10 +10,12 @@ export interface CompletionResult {
   complete: boolean;
   verdict?: "approve" | "reject" | "blocked";
   summary?: string;
+  /** The raw signal emitted (for tool_signal). Absent for `idle` completion. */
+  signal?: SignalVerdict;
 }
 
 interface Signal {
-  status: "complete" | "approve" | "reject" | "blocked";
+  status: SignalVerdict;
   reason?: string;
 }
 
@@ -39,16 +41,16 @@ async function checkToolSignal(ctx: CompletionContext): Promise<CompletionResult
   const signal = JSON.parse(raw) as Signal;
 
   if (signal.status === "approve") {
-    return { complete: true, verdict: "approve", summary: signal.reason ?? "Approved" };
+    return { complete: true, verdict: "approve", signal: "approve", summary: signal.reason ?? "Approved" };
   }
   if (signal.status === "reject") {
-    return { complete: true, verdict: "reject", summary: signal.reason ?? "Rejected" };
+    return { complete: true, verdict: "reject", signal: "reject", summary: signal.reason ?? "Rejected" };
   }
   if (signal.status === "blocked") {
-    return { complete: true, verdict: "blocked", summary: signal.reason ?? "Blocked" };
+    return { complete: true, verdict: "blocked", signal: "blocked", summary: signal.reason ?? "Blocked" };
   }
 
-  return { complete: true, summary: signal.reason ?? "Stage signalled completion" };
+  return { complete: true, signal: "complete", summary: signal.reason ?? "Stage signalled completion" };
 }
 
 const checkers: Record<CompletionMethod, Checker> = {

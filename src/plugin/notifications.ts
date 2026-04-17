@@ -55,6 +55,22 @@ export function gateMessage(pipelineName: string, reason: string, nextStageId: s
   });
 }
 
+/**
+ * Render a pause message driven by the stage's custom `pauseAfter.prompt`.
+ * The pipeline author controls the body; lattice still wraps it in the
+ * agent-guard envelope so the orchestrator doesn't auto-act on it.
+ */
+export function customGateMessage(pipelineName: string, body: string): string {
+  return buildUserNotification({
+    title: `Pipeline "${pipelineName}" paused`,
+    summary: body,
+    nextSteps: [
+      "Reply with your decision or changes; the orchestrator will pass it through via `/lattice-retry`.",
+      "**Cancel** with `/lattice-abort`.",
+    ],
+  });
+}
+
 export function completionMessage(instance: PipelineInstance): string {
   const completedStages = instance.stages
     .filter((s) => s.status === "completed")

@@ -9,7 +9,7 @@ import {
   saveInstance,
 } from "../engine/index.js";
 import type { createLogger } from "./logger.js";
-import { completionMessage, failureMessage, gateMessage, pauseMessage } from "./notifications.js";
+import { completionMessage, customGateMessage, failureMessage, gateMessage, pauseMessage } from "./notifications.js";
 import { executeStageAction, type StageRunnerDeps } from "./stage-runner.js";
 
 type Logger = ReturnType<typeof createLogger>;
@@ -71,6 +71,12 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
       const result = await advancePipeline(instance, flat, deps.state.engineConfig, completion);
       deps.state.activeInstance = result.instance;
 
+      if (result.diagnostics) {
+        for (const msg of result.diagnostics) {
+          deps.log.warn(msg);
+        }
+      }
+
       if (result.instance.status === "running" && deps.state.parentSessionId) {
         await executeStageAction(result.instance, deps.state.parentSessionId, flat, deps);
       }
@@ -87,11 +93,10 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
       if (result.gateReason && deps.state.parentSessionId) {
         deps.log.info(`Pipeline gated: ${result.gateReason}`);
         const nextStage = result.instance.stages[result.instance.currentStageIndex];
-        await deps.sessions.injectPrompt(
-          deps.state.parentSessionId,
-          "build",
-          gateMessage(instance.pipelineName, result.gateReason, nextStage?.id),
-        );
+        const message = result.customGatePrompt
+          ? customGateMessage(instance.pipelineName, result.customGatePrompt)
+          : gateMessage(instance.pipelineName, result.gateReason, nextStage?.id);
+        await deps.sessions.injectPrompt(deps.state.parentSessionId, "build", message);
       }
 
       if (result.instance.status === "completed") {

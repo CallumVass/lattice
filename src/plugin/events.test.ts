@@ -107,8 +107,8 @@ afterEach(async () => {
 describe("session.idle pipeline progression", () => {
   const twoStage = pipeline("two-stage", {
     stages: [
-      stage("first", { agent: "planner", completion: "tool_signal", fork: false }),
-      stage("second", { agent: "implementor", completion: "tool_signal", fork: true }),
+      stage("first", { agent: "planner", completion: "tool_signal", signals: ["complete"], fork: false }),
+      stage("second", { agent: "implementor", completion: "tool_signal", signals: ["complete"], fork: true }),
     ],
   });
 
