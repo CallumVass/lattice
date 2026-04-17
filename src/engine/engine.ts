@@ -28,14 +28,6 @@ interface StageAction {
   stageId: string;
 }
 
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 50);
-}
-
 // --- Start ---
 
 export async function startPipeline(
@@ -93,7 +85,6 @@ export function buildStageAction(instance: PipelineInstance, pipeline: Flattened
   const completedStages = instance.stages.filter((s) => s.status === "completed");
   const prompt = composePrompt({
     goal: instance.goal,
-    slug: slugify(instance.goal),
     completedStages,
     currentStage: stageDef,
     pendingResponse: instance.pendingResponse,
@@ -147,9 +138,7 @@ export async function checkStageCompletion(
   }
 
   return checkCompletion(stageDef.completion, {
-    plansDir: join(config.projectDir, ".lattice", "plans"),
     signalsDir: join(config.projectDir, ".lattice", "signals"),
-    slug: slugify(instance.goal),
     stageId: currentStage.id,
   });
 }

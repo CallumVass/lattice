@@ -1,6 +1,6 @@
 import { z } from "zod/v4";
 
-export const completionMethodSchema = z.enum(["plan_created", "plan_complete", "idle", "tool_signal"]);
+export const completionMethodSchema = z.enum(["idle", "tool_signal"]);
 
 export type CompletionMethod = z.infer<typeof completionMethodSchema>;
 

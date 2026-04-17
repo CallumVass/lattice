@@ -7,8 +7,8 @@ describe("pipeline", () => {
     const p = pipeline("implement", {
       description: "TDD implementation pipeline",
       stages: [
-        stage("plan", { agent: "planner", completion: "plan_created" }),
-        stage("implement", { agent: "implementor", completion: "plan_complete", fork: true }),
+        stage("plan", { agent: "planner", completion: "tool_signal" }),
+        stage("implement", { agent: "implementor", completion: "tool_signal", fork: true }),
       ],
     });
 
@@ -20,8 +20,8 @@ describe("pipeline", () => {
   it("supports pipeline composition via ref", () => {
     const p = pipeline("implement", {
       stages: [
-        stage("plan", { agent: "planner", completion: "plan_created" }),
-        stage("implement", { agent: "implementor", completion: "plan_complete", fork: true }),
+        stage("plan", { agent: "planner", completion: "tool_signal" }),
+        stage("implement", { agent: "implementor", completion: "tool_signal", fork: true }),
         ref("review"),
       ],
     });

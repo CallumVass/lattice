@@ -16,7 +16,7 @@ export default pipeline("quick-fix", {
   stages: [
     stage("implement", {
       agent: "implementor",
-      completion: "plan_complete",
+      completion: "tool_signal",
       fork: false,
     }),
     ref("review-loop"),
@@ -36,7 +36,7 @@ export default {
       id: "implement",
       type: "stage",
       agent: "implementor",
-      completion: "plan_complete",
+      completion: "tool_signal",
       fork: false,
     },
     { type: "pipeline", pipeline: "review-loop" },
@@ -48,18 +48,16 @@ export default {
 
 - `id`: unique stage id inside the pipeline
 - `agent`: OpenCode agent name to run (must match an agent discoverable under `agents/`)
-- `completion`: one of `idle`, `plan_created`, `plan_complete`, `tool_signal`
+- `completion`: `idle` or `tool_signal`
 - `fork`: reuse the current conversation context when `true`; start a cold subtask when `false`
 - `pauseAfter`: pause the pipeline after this stage completes (useful for approval gates)
 - `skills`: optional pinned or dynamic skill selection (see [`skills.md`](skills.md))
-- `prompt`: extra instructions appended to the stage prompt
+- `prompt`: extra instructions appended to the stage prompt. Use this to tell the agent about pipeline-specific wiring: what output format to produce, where to write files, whether to use `reject` vs always `complete`, etc.
 
 ## Completion Methods
 
-- `idle` — the stage completes when the agent goes idle (no further tool calls).
-- `plan_created` — the stage completes when a plan file is written under `.lattice/plans/`.
-- `plan_complete` — the stage completes when every checklist item in its plan file is checked.
-- `tool_signal` — the stage completes when the agent calls `lattice_signal` with one of `complete`, `approve`, `reject`, `blocked`.
+- `idle` — the stage completes when the agent session goes idle (no further tool calls or messages).
+- `tool_signal` — the stage completes when the agent calls `lattice_signal` with one of `complete`, `approve`, `reject`, `blocked`. The engine automatically injects the signalling instructions into every `tool_signal` stage's prompt, so the agent always knows how to finish.
 
 ## Pipeline Composition
 

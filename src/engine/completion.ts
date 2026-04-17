@@ -2,9 +2,7 @@ import { readFile } from "node:fs/promises";
 import type { CompletionMethod } from "../schema/index.js";
 
 export interface CompletionContext {
-  plansDir: string;
   signalsDir: string;
-  slug: string;
   stageId: string;
 }
 
@@ -22,38 +20,6 @@ interface Signal {
 type Checker = (ctx: CompletionContext) => Promise<CompletionResult>;
 
 const INCOMPLETE: CompletionResult = { complete: false };
-
-async function checkPlanCreated(ctx: CompletionContext): Promise<CompletionResult> {
-  const path = `${ctx.plansDir}/${ctx.slug}.md`;
-  try {
-    const content = await readFile(path, "utf-8");
-    return { complete: true, summary: `Plan at ${path}:\n\n${content.trim()}` };
-  } catch {
-    return INCOMPLETE;
-  }
-}
-
-async function checkPlanComplete(ctx: CompletionContext): Promise<CompletionResult> {
-  const path = `${ctx.plansDir}/${ctx.slug}.md`;
-  let content: string;
-  try {
-    content = await readFile(path, "utf-8");
-  } catch {
-    return INCOMPLETE;
-  }
-
-  const checkboxes = content.match(/^- \[[ x]\]/gm);
-  if (!checkboxes || checkboxes.length === 0) {
-    return INCOMPLETE;
-  }
-
-  const allChecked = checkboxes.every((cb) => cb === "- [x]");
-  if (!allChecked) {
-    return INCOMPLETE;
-  }
-
-  return { complete: true, summary: `All ${checkboxes.length} items checked` };
-}
 
 async function checkIdle(): Promise<CompletionResult> {
   // idle completion: the session.idle event itself is the signal.
@@ -86,8 +52,6 @@ async function checkToolSignal(ctx: CompletionContext): Promise<CompletionResult
 }
 
 const checkers: Record<CompletionMethod, Checker> = {
-  plan_created: checkPlanCreated,
-  plan_complete: checkPlanComplete,
   idle: checkIdle,
   tool_signal: checkToolSignal,
 };

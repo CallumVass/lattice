@@ -5,14 +5,14 @@ describe("stage", () => {
   it("creates a stage with defaults", () => {
     const s = stage("plan", {
       agent: "planner",
-      completion: "plan_created",
+      completion: "tool_signal",
     });
 
     expect(s).toEqual({
       id: "plan",
       type: "stage",
       agent: "planner",
-      completion: "plan_created",
+      completion: "tool_signal",
       fork: false,
       pauseAfter: false,
     });
@@ -21,7 +21,7 @@ describe("stage", () => {
   it("creates a forked stage", () => {
     const s = stage("implement", {
       agent: "implementor",
-      completion: "plan_complete",
+      completion: "tool_signal",
       fork: true,
     });
 
@@ -31,7 +31,7 @@ describe("stage", () => {
   it("creates a stage with skills", () => {
     const s = stage("plan", {
       agent: "planner",
-      completion: "plan_created",
+      completion: "tool_signal",
       skills: { dynamic: true, pinned: ["tdd"] },
     });
 
@@ -45,7 +45,7 @@ describe("stage", () => {
   it("creates a stage with custom prompt", () => {
     const s = stage("plan", {
       agent: "planner",
-      completion: "plan_created",
+      completion: "tool_signal",
       prompt: "Plan the implementation of {{goal}}",
     });
 

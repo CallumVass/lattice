@@ -7,19 +7,18 @@ Lattice persists runtime data in `.lattice/` inside the target project.
 ```text
 .lattice/
 ├── config.jsonc     # your config
-├── plans/           # plan files written by plan_created / plan_complete stages
 ├── signals/         # stage outcome signals written by lattice_signal
 └── state/           # persisted pipeline instances (one file per run)
 ```
 
 `.lattice/` is per-project runtime state and is intended to be gitignored. Lattice adds it to `.gitignore` on first write if it is not already listed.
 
+Pipelines can write any other files they need (e.g. plans, drafts) under `.lattice/` or wherever their stage prompts direct.
+
 ## Completion Methods
 
 - `idle`: stage completes when the session goes idle.
-- `plan_created`: completes when `.lattice/plans/<slug>.md` exists.
-- `plan_complete`: completes when every markdown checkbox in that plan is `- [x]`.
-- `tool_signal`: completes when the stage writes `.lattice/signals/<stage>.json` via the `lattice_signal` tool.
+- `tool_signal`: completes when the agent calls `lattice_signal` with `complete`, `approve`, `reject`, or `blocked`.
 
 ## Retry Behavior
 

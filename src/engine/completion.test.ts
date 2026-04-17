@@ -6,14 +6,11 @@ import type { CompletionContext } from "./completion.js";
 import { checkCompletion } from "./completion.js";
 
 let baseDir: string;
-let plansDir: string;
 let signalsDir: string;
 
 beforeEach(async () => {
   baseDir = join(tmpdir(), `lattice-completion-${Date.now()}`);
-  plansDir = join(baseDir, "plans");
   signalsDir = join(baseDir, "signals");
-  await mkdir(plansDir, { recursive: true });
   await mkdir(signalsDir, { recursive: true });
 });
 
@@ -23,52 +20,11 @@ afterEach(async () => {
 
 function ctx(overrides: Partial<CompletionContext> = {}): CompletionContext {
   return {
-    plansDir,
     signalsDir,
-    slug: "test-feature",
     stageId: "test-stage",
     ...overrides,
   };
 }
-
-describe("plan_created", () => {
-  it("incomplete when file missing", async () => {
-    const result = await checkCompletion("plan_created", ctx());
-    expect(result.complete).toBe(false);
-  });
-
-  it("complete when file exists", async () => {
-    await writeFile(join(plansDir, "test-feature.md"), "# Plan");
-    const result = await checkCompletion("plan_created", ctx());
-    expect(result.complete).toBe(true);
-  });
-});
-
-describe("plan_complete", () => {
-  it("incomplete when file missing", async () => {
-    const result = await checkCompletion("plan_complete", ctx());
-    expect(result.complete).toBe(false);
-  });
-
-  it("incomplete when unchecked items remain", async () => {
-    await writeFile(join(plansDir, "test-feature.md"), "- [x] done\n- [ ] not done\n");
-    const result = await checkCompletion("plan_complete", ctx());
-    expect(result.complete).toBe(false);
-  });
-
-  it("complete when all items checked", async () => {
-    await writeFile(join(plansDir, "test-feature.md"), "- [x] first\n- [x] second\n");
-    const result = await checkCompletion("plan_complete", ctx());
-    expect(result.complete).toBe(true);
-    expect(result.summary).toContain("2 items");
-  });
-
-  it("incomplete when no checkboxes at all", async () => {
-    await writeFile(join(plansDir, "test-feature.md"), "# Plan\nSome text\n");
-    const result = await checkCompletion("plan_complete", ctx());
-    expect(result.complete).toBe(false);
-  });
-});
 
 describe("idle", () => {
   it("always complete", async () => {

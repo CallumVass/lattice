@@ -36,8 +36,8 @@ describe("flattenPipeline", () => {
 
     const implement = pipeline("implement", {
       stages: [
-        stage("plan", { agent: "planner", completion: "plan_created" }),
-        stage("implement", { agent: "implementor", completion: "plan_complete", fork: true }),
+        stage("plan", { agent: "planner", completion: "tool_signal" }),
+        stage("implement", { agent: "implementor", completion: "tool_signal", fork: true }),
         ref("review"),
       ],
     });
@@ -66,7 +66,7 @@ describe("flattenPipeline", () => {
 
   it("throws on missing pipeline ref", () => {
     const p = pipeline("implement", {
-      stages: [stage("plan", { agent: "planner", completion: "plan_created" }), ref("nonexistent")],
+      stages: [stage("plan", { agent: "planner", completion: "tool_signal" }), ref("nonexistent")],
     });
 
     expect(() => flattenPipeline(p, registryOf(p))).toThrow('"nonexistent" not found');
@@ -82,7 +82,7 @@ describe("flattenPipeline", () => {
     });
 
     const implement = pipeline("implement", {
-      stages: [stage("plan", { agent: "planner", completion: "plan_created" }), ref("review")],
+      stages: [stage("plan", { agent: "planner", completion: "tool_signal" }), ref("review")],
     });
 
     const registry = registryOf(lint, review, implement);

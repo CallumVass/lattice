@@ -34,7 +34,7 @@ Lattice keeps pinned skills, then fills remaining slots with the highest-scoring
 ```ts
 stage("plan", {
   agent: "planner",
-  completion: "plan_created",
+  completion: "tool_signal",
   skills: { dynamic: true, pinned: ["tdd"], max: 4 },
 }),
 ```
