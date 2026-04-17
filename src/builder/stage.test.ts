@@ -6,6 +6,7 @@ describe("stage", () => {
     const s = stage("plan", {
       agent: "planner",
       completion: "tool_signal",
+      signals: ["complete"],
     });
 
     expect(s).toEqual({
@@ -13,6 +14,7 @@ describe("stage", () => {
       type: "stage",
       agent: "planner",
       completion: "tool_signal",
+      signals: ["complete"],
       fork: false,
       pauseAfter: false,
     });
@@ -22,6 +24,7 @@ describe("stage", () => {
     const s = stage("implement", {
       agent: "implementor",
       completion: "tool_signal",
+      signals: ["complete"],
       fork: true,
     });
 
@@ -32,6 +35,7 @@ describe("stage", () => {
     const s = stage("plan", {
       agent: "planner",
       completion: "tool_signal",
+      signals: ["complete"],
       skills: { dynamic: true, pinned: ["tdd"] },
     });
 
@@ -46,6 +50,7 @@ describe("stage", () => {
     const s = stage("plan", {
       agent: "planner",
       completion: "tool_signal",
+      signals: ["complete"],
       prompt: "Plan the implementation of {{goal}}",
     });
 

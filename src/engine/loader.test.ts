@@ -26,7 +26,7 @@ describe("loadPipelines", () => {
       `export default {
         name: "review",
         stages: [
-          { id: "code-review", type: "stage", agent: "code-reviewer", completion: "tool_signal", fork: false },
+          { id: "code-review", type: "stage", agent: "code-reviewer", completion: "tool_signal", signals: ["complete"], fork: false },
         ],
       };`,
     );

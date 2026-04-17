@@ -17,6 +17,7 @@ export default pipeline("quick-fix", {
     stage("implement", {
       agent: "implementor",
       completion: "tool_signal",
+      signals: ["complete", "blocked"],
       fork: false,
     }),
     ref("review-loop"),
@@ -37,6 +38,7 @@ export default {
       type: "stage",
       agent: "implementor",
       completion: "tool_signal",
+      signals: ["complete", "blocked"],
       fork: false,
     },
     { type: "pipeline", pipeline: "review-loop" },
@@ -49,15 +51,61 @@ export default {
 - `id`: unique stage id inside the pipeline
 - `agent`: OpenCode agent name to run (must match an agent discoverable under `agents/`)
 - `completion`: `idle` or `tool_signal`
+- `signals`: **required for `tool_signal` stages**. Declares the verdicts this stage may emit. Any of `"complete" | "approve" | "reject" | "blocked"`. Tailors the engine-injected signalling instructions the agent sees, and the engine warns if the agent signals outside the declared set.
 - `fork`: reuse the current conversation context when `true`; start a cold subtask when `false`
-- `pauseAfter`: pause the pipeline after this stage completes (useful for approval gates)
+- `pauseAfter`: `boolean | { prompt: string }` — pause the pipeline after this stage completes. `true` renders a generic pause message; `{ prompt }` renders the given body verbatim (with `{{summary}}` / `{{reason}}` replaced by the stage's completion summary).
 - `skills`: optional pinned or dynamic skill selection (see [`skills.md`](skills.md))
-- `prompt`: extra instructions appended to the stage prompt. Use this to tell the agent about pipeline-specific wiring: what output format to produce, where to write files, whether to use `reject` vs always `complete`, etc.
+- `prompt`: extra instructions appended to the stage prompt. Use this to tell the agent about pipeline-specific wiring: what output format to produce, where to write files, etc.
 
 ## Completion Methods
 
 - `idle` — the stage completes when the agent session goes idle (no further tool calls or messages).
-- `tool_signal` — the stage completes when the agent calls `lattice_signal` with one of `complete`, `approve`, `reject`, `blocked`. The engine automatically injects the signalling instructions into every `tool_signal` stage's prompt, so the agent always knows how to finish.
+- `tool_signal` — the stage completes when the agent calls `lattice_signal` with one of its declared `signals`. The engine automatically injects the signalling instructions into every `tool_signal` stage's prompt, listing only the declared verdicts, so the agent knows exactly how to finish.
+
+## Signal vocabulary
+
+| Signal | Meaning | Engine behaviour |
+| --- | --- | --- |
+| `complete` | Work finished successfully | Pipeline advances |
+| `approve` | Verdict: pass | Pipeline advances |
+| `reject` | Verdict: fail | Pipeline pauses for user action |
+| `blocked` | Cannot continue | Pipeline pauses for user action |
+
+Declare only the verdicts relevant to each stage. Examples:
+
+```ts
+// work stage — finishes successfully or blocks
+signals: ["complete", "blocked"];
+
+// verdict stage — approves or rejects (no notion of "just done")
+signals: ["approve", "reject"];
+
+// open-ended: all four outcomes possible
+signals: ["complete", "approve", "reject", "blocked"];
+```
+
+## Custom pause prompts
+
+When a stage pauses for human interaction (approval, edit, clarification), use the object form of `pauseAfter` to write the message the user sees:
+
+```ts
+stage("plan", {
+  agent: "planner",
+  completion: "tool_signal",
+  signals: ["complete"],
+  pauseAfter: {
+    prompt: [
+      "Review the draft at `.lattice/plans/implement.md`.",
+      "",
+      "Agent said: {{summary}}",
+      "",
+      "Reply `/lattice-retry` to proceed, or `/lattice-retry <edits>` with changes.",
+    ].join("\n"),
+  },
+});
+```
+
+`{{summary}}` and `{{reason}}` (aliases) expand to the stage's `lattice_signal` `reason`. If you need no substitution, omit the templates. Lattice wraps the body in the standard agent-guard envelope so the orchestrator doesn't auto-act on the notification.
 
 ## Pipeline Composition
 

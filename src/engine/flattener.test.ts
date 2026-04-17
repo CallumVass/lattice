@@ -15,8 +15,8 @@ describe("flattenPipeline", () => {
   it("passes through stages unchanged", () => {
     const p = pipeline("review", {
       stages: [
-        stage("code-review", { agent: "code-reviewer", completion: "tool_signal" }),
-        stage("review-judge", { agent: "review-judge", completion: "tool_signal", fork: true }),
+        stage("code-review", { agent: "code-reviewer", completion: "tool_signal", signals: ["complete"] }),
+        stage("review-judge", { agent: "review-judge", completion: "tool_signal", signals: ["complete"], fork: true }),
       ],
     });
 
@@ -29,15 +29,15 @@ describe("flattenPipeline", () => {
   it("inlines pipeline references", () => {
     const review = pipeline("review", {
       stages: [
-        stage("code-review", { agent: "code-reviewer", completion: "tool_signal" }),
-        stage("review-judge", { agent: "review-judge", completion: "tool_signal", fork: true }),
+        stage("code-review", { agent: "code-reviewer", completion: "tool_signal", signals: ["complete"] }),
+        stage("review-judge", { agent: "review-judge", completion: "tool_signal", signals: ["complete"], fork: true }),
       ],
     });
 
     const implement = pipeline("implement", {
       stages: [
-        stage("plan", { agent: "planner", completion: "tool_signal" }),
-        stage("implement", { agent: "implementor", completion: "tool_signal", fork: true }),
+        stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] }),
+        stage("implement", { agent: "implementor", completion: "tool_signal", signals: ["complete"], fork: true }),
         ref("review"),
       ],
     });
@@ -66,7 +66,10 @@ describe("flattenPipeline", () => {
 
   it("throws on missing pipeline ref", () => {
     const p = pipeline("implement", {
-      stages: [stage("plan", { agent: "planner", completion: "tool_signal" }), ref("nonexistent")],
+      stages: [
+        stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] }),
+        ref("nonexistent"),
+      ],
     });
 
     expect(() => flattenPipeline(p, registryOf(p))).toThrow('"nonexistent" not found');
@@ -78,11 +81,14 @@ describe("flattenPipeline", () => {
     });
 
     const review = pipeline("review", {
-      stages: [ref("lint"), stage("code-review", { agent: "code-reviewer", completion: "tool_signal" })],
+      stages: [
+        ref("lint"),
+        stage("code-review", { agent: "code-reviewer", completion: "tool_signal", signals: ["complete"] }),
+      ],
     });
 
     const implement = pipeline("implement", {
-      stages: [stage("plan", { agent: "planner", completion: "tool_signal" }), ref("review")],
+      stages: [stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] }), ref("review")],
     });
 
     const registry = registryOf(lint, review, implement);

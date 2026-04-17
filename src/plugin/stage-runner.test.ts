@@ -30,6 +30,7 @@ function makeRegistry() {
       stage("plan", {
         agent: "planner",
         completion: "tool_signal",
+        signals: ["complete"],
         skills: { dynamic: false, pinned: ["tdd"], max: 2 },
       }),
     ],
@@ -95,7 +96,14 @@ describe("selectSkillsForStage", () => {
 
   it("swallows scoring errors on dynamic stages and writes nothing", async () => {
     const def = pipeline("dynamic", {
-      stages: [stage("plan", { agent: "planner", completion: "tool_signal", skills: { dynamic: true, max: 2 } })],
+      stages: [
+        stage("plan", {
+          agent: "planner",
+          completion: "tool_signal",
+          signals: ["complete"],
+          skills: { dynamic: true, max: 2 },
+        }),
+      ],
     });
     const registry: PipelineRegistry = new Map([[def.name, def]]);
     const state = makeState({}, registry);

@@ -2,8 +2,8 @@ import plugin from "./plugin/index.js";
 
 export default plugin;
 
-// Builder — for authoring custom pipeline files in `.lattice/pipelines/`.
-export type { PipelineOptions, StageOptions } from "./builder/index.js";
+// Builder — for authoring custom pipeline files.
+export type { IdleStageOptions, PipelineOptions, SignalStageOptions, StageOptions } from "./builder/index.js";
 export { pipeline, ref, stage } from "./builder/index.js";
 
 // Schema types — for TypeScript authors of custom pipelines.
