@@ -28,9 +28,13 @@ const learningsConfigSchema = z.object({
   agents: z.array(z.string()).default(["code-reviewer", "planner"]),
   maxPerAgent: z.number().int().positive().default(5),
   confidenceThreshold: z.number().min(0).max(1).default(0.5),
+  decayRate: z.number().min(0).default(0.05),
+  reinforcementBoost: z.number().min(0).max(1).default(0.15),
+  invalidPenalty: z.number().min(0).max(1).default(0.4),
+  similarityThreshold: z.number().min(0).max(1).default(0.7),
 });
 
-export type LearningsConfig = z.infer<typeof learningsConfigSchema>;
+export type LearningsConfig = z.input<typeof learningsConfigSchema>;
 
 const latticeConfigSchema = z.object({
   agents: z.record(z.string(), agentOverrideSchema).optional(),
@@ -44,4 +48,4 @@ const latticeConfigSchema = z.object({
   learnings: learningsConfigSchema.optional(),
 });
 
-export type LatticeConfig = z.infer<typeof latticeConfigSchema>;
+export type LatticeConfig = z.input<typeof latticeConfigSchema>;

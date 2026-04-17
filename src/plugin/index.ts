@@ -12,6 +12,7 @@ import type { PluginState } from "./state.js";
 import { AgentTracker, buildSystemTransform, SkillStore } from "./system-transform.js";
 import {
   createLatticeAbortTool,
+  createLatticeLearningFeedbackTool,
   createLatticeRetryTool,
   createLatticeRunTool,
   createLatticeSignalTool,
@@ -46,6 +47,9 @@ const server: Plugin = async ({ client, directory }) => {
     parentSessionId: undefined,
     engineConfig: { projectDir: directory, latticeConfig },
     learningsInjected: 0,
+    pendingKills: undefined,
+    originalProposeSummary: undefined,
+    lastCompactionMerged: 0,
   };
 
   function getFlattened(name: string) {
@@ -88,6 +92,7 @@ const server: Plugin = async ({ client, directory }) => {
       lattice_abort: createLatticeAbortTool(toolDeps),
       lattice_retry: createLatticeRetryTool(toolDeps),
       lattice_signal: createLatticeSignalTool(toolDeps),
+      lattice_learning_feedback: createLatticeLearningFeedbackTool(toolDeps),
     },
 
     async config(config) {
@@ -119,7 +124,14 @@ const server: Plugin = async ({ client, directory }) => {
         template:
           "The user has explicitly invoked /lattice-retry. Call the lattice_retry tool with confirm: true. " +
           "If the user's most recent message contains a decision, clarification, or guidance that answers the pause reason, pass it verbatim as the `response` argument so the retried stage receives it. " +
+          "If the user wrote `/lattice-retry kill:[ids]` (or similar, e.g. `kill:[2,4]`), parse the 1-indexed numbers and pass them as the `kill` argument (a number array). " +
           "Do not call any other lattice tools.",
+      };
+      config.command["lattice-learning-feedback"] = {
+        description: "Give feedback on a captured learning (valid | invalid | stale)",
+        template:
+          "The user has invoked /lattice-learning-feedback. The arguments are `<id> <verdict>` where verdict is one of valid, invalid, stale. " +
+          "Call the lattice_learning_feedback tool with those arguments. Do not call any other lattice tools.",
       };
     },
 

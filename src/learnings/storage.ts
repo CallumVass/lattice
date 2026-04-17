@@ -17,6 +17,18 @@ export async function append(entry: LearningEntry, opts: StorageOptions): Promis
   await appendFile(path, `${JSON.stringify(entry)}\n`);
 }
 
+/**
+ * Replace the entire store with `entries`. Used by compaction and feedback
+ * updates where an in-place rewrite is simpler than reconstructing delta
+ * semantics across an append-only log.
+ */
+export async function writeAll(entries: LearningEntry[], opts: StorageOptions): Promise<void> {
+  const path = resolveStorePath(opts);
+  await mkdir(dirname(path), { recursive: true });
+  const body = entries.map((e) => JSON.stringify(e)).join("\n");
+  await writeFile(path, entries.length === 0 ? "" : `${body}\n`);
+}
+
 export async function readAll(opts: StorageOptions): Promise<LearningEntry[]> {
   const path = resolveStorePath(opts);
   let raw: string;

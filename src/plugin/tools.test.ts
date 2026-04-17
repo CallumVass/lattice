@@ -35,6 +35,9 @@ function makeState(registry: PipelineRegistry, activeInstance?: PipelineInstance
       latticeConfig: {},
     },
     learningsInjected: 0,
+    pendingKills: undefined,
+    originalProposeSummary: undefined,
+    lastCompactionMerged: 0,
   };
 }
 
