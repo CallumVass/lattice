@@ -95,7 +95,7 @@ describe("startPipeline + buildStageAction", () => {
 
   it("builds inject action for fork:true stage", () => {
     const p = pipeline("impl", {
-      stages: [stage("impl", { agent: "implementor", completion: "plan_complete", fork: true })],
+      stages: [stage("impl", { agent: "implementor", completion: "tool_signal", fork: true })],
     });
     const flat = flattenPipeline(p, registryOf(p));
     const instance = {
@@ -116,7 +116,7 @@ describe("startPipeline + buildStageAction", () => {
   it("skips stages marked in config", async () => {
     const p = pipeline("implement", {
       stages: [
-        stage("plan", { agent: "planner", completion: "plan_created" }),
+        stage("plan", { agent: "planner", completion: "tool_signal" }),
         stage("refactor", { agent: "refactorer", completion: "idle" }),
       ],
     });
@@ -131,7 +131,7 @@ describe("startPipeline + buildStageAction", () => {
 
   it("completes immediately when all stages skipped", async () => {
     const p = pipeline("noop", {
-      stages: [stage("only", { agent: "planner", completion: "plan_created" })],
+      stages: [stage("only", { agent: "planner", completion: "tool_signal" })],
     });
     const flat = flattenPipeline(p, registryOf(p));
     const config: LatticeConfig = {
@@ -262,28 +262,5 @@ describe("advancePipeline", () => {
     const result = await checkAndAdvance(instance, flat, engineConfig());
 
     expect(result.instance.status).toBe("completed");
-  });
-
-  it("uses plan_created completion with file check", async () => {
-    const p = pipeline("implement", {
-      stages: [
-        stage("plan", { agent: "planner", completion: "plan_created" }),
-        stage("implement", { agent: "implementor", completion: "plan_complete", fork: true }),
-      ],
-    });
-    const flat = flattenPipeline(p, registryOf(p));
-
-    const { instance } = await startAndRun(flat, "implement feature 42", engineConfig());
-
-    let result = await checkAndAdvance(instance, flat, engineConfig());
-    expect(result.instance.stages[0]?.status).toBe("running");
-
-    const plansDir = join(projectDir, ".lattice", "plans");
-    await mkdir(plansDir, { recursive: true });
-    await writeFile(join(plansDir, "implement-feature-42.md"), "# Plan\n- [ ] test 1\n");
-
-    result = await checkAndAdvance(instance, flat, engineConfig());
-    expect(result.instance.stages[0]?.status).toBe("completed");
-    expect(result.instance.stages[1]?.status).toBe("pending");
   });
 });

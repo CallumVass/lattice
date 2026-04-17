@@ -186,7 +186,7 @@ describe("createLatticeStatusTool", () => {
 describe("createLatticeAbortTool", () => {
   it("marks the running stage failed and cleans signals", async () => {
     const definition = pipeline("implement", {
-      stages: [stage("plan", { agent: "planner", completion: "plan_created" })],
+      stages: [stage("plan", { agent: "planner", completion: "tool_signal" })],
     });
     const registry = registryOf(definition);
     const state = makeState(registry, runningInstance());
@@ -210,7 +210,7 @@ describe("createLatticeAbortTool", () => {
 
   it("refuses to abort without confirm: true", async () => {
     const definition = pipeline("implement", {
-      stages: [stage("plan", { agent: "planner", completion: "plan_created" })],
+      stages: [stage("plan", { agent: "planner", completion: "tool_signal" })],
     });
     const registry = registryOf(definition);
     const state = makeState(registry, runningInstance());
@@ -225,7 +225,7 @@ describe("createLatticeAbortTool", () => {
 describe("createLatticeRetryTool", () => {
   it("rewinds to the nearest implementor stage", async () => {
     const definition = pipeline("implement", {
-      stages: [stage("plan", { agent: "planner", completion: "plan_created" })],
+      stages: [stage("plan", { agent: "planner", completion: "tool_signal" })],
     });
     const registry = registryOf(definition);
     const state = makeState(
@@ -305,7 +305,7 @@ describe("createLatticeRetryTool", () => {
 
   it("refuses to retry without confirm: true", async () => {
     const definition = pipeline("implement", {
-      stages: [stage("plan", { agent: "planner", completion: "plan_created" })],
+      stages: [stage("plan", { agent: "planner", completion: "tool_signal" })],
     });
     const registry = registryOf(definition);
     const state = makeState(
