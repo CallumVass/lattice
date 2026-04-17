@@ -39,6 +39,10 @@ Stages can request:
 
 Lattice keeps pinned skills, then fills remaining slots with the highest-scoring dynamic skills.
 
+## Learnings skill
+
+When learnings capture is enabled (see `docs/configuration.md`), lattice renders stored findings for the current agent as a synthetic `codebase-learnings` skill and prepends it to the stage's skill list. It does not go through scanning or scoring — entries come from `.lattice/learnings.jsonl`, filtered by agent and confidence, capped at `learnings.maxPerAgent`. The reviewer cites matches back as `(learning: <id>)`.
+
 ## Authoring A Skill
 
 ```md

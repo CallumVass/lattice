@@ -9,15 +9,26 @@ interface CaptureLogger {
 }
 
 const DEFAULT_STORE_PATH = ".lattice/learnings.jsonl";
+const DEFAULT_AGENTS = ["code-reviewer"];
+const DEFAULT_MAX_PER_AGENT = 5;
+const DEFAULT_CONFIDENCE_THRESHOLD = 0.5;
 
-export function resolveLearningsConfig(config: EngineConfig): {
+export interface ResolvedLearningsConfig {
   enabled: boolean;
   storePath: string;
-} {
+  agents: string[];
+  maxPerAgent: number;
+  confidenceThreshold: number;
+}
+
+export function resolveLearningsConfig(config: EngineConfig): ResolvedLearningsConfig {
   const cfg = config.latticeConfig.learnings as LearningsConfig | undefined;
   return {
     enabled: cfg?.enabled !== false,
     storePath: cfg?.storePath ?? DEFAULT_STORE_PATH,
+    agents: cfg?.agents ?? DEFAULT_AGENTS,
+    maxPerAgent: cfg?.maxPerAgent ?? DEFAULT_MAX_PER_AGENT,
+    confidenceThreshold: cfg?.confidenceThreshold ?? DEFAULT_CONFIDENCE_THRESHOLD,
   };
 }
 

@@ -8,4 +8,6 @@ export interface PluginState {
   activeInstance: PipelineInstance | undefined;
   parentSessionId: string | undefined;
   engineConfig: EngineConfig;
+  /** Accumulated count of learning entries injected across stages of the active run. */
+  learningsInjected: number;
 }

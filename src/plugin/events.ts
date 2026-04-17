@@ -8,11 +8,11 @@ import {
   type SessionProvider,
   saveInstance,
 } from "../engine/index.js";
-import { captureLearningsFromReview } from "../learnings/index.js";
+import { captureLearningsFromReview, recordRun, summarizeFindings } from "../learnings/index.js";
+import type { PipelineInstance } from "../schema/index.js";
 import type { createLogger } from "./logger.js";
 import { completionMessage, failureMessage, gateMessage, pauseMessage } from "./notifications.js";
 import { executeStageAction, type StageRunnerDeps } from "./stage-runner.js";
-import type { PluginState } from "./state.js";
 
 type Logger = ReturnType<typeof createLogger>;
 
@@ -20,10 +20,29 @@ type PluginReturn = Awaited<ReturnType<Exclude<Plugin, undefined>>>;
 type EventHandler = NonNullable<PluginReturn["event"]>;
 
 interface EventHandlerDeps extends StageRunnerDeps {
-  state: PluginState;
   getFlattened: (name: string) => FlattenedPipeline;
   sessions: SessionProvider;
   log: Logger;
+}
+
+async function recordPipelineMetrics(instance: PipelineInstance, deps: EventHandlerDeps): Promise<void> {
+  try {
+    const propose = instance.stages.find((s) => s.id === "propose-comments");
+    const { findingsCount, byCategory } = summarizeFindings(propose?.summary);
+    await recordRun(
+      {
+        instance: instance.id,
+        pipeline: instance.pipelineName,
+        findingsCount,
+        byCategory,
+        learningsInjected: deps.state.learningsInjected,
+        timestamp: new Date().toISOString(),
+      },
+      { projectDir: deps.state.engineConfig.projectDir },
+    );
+  } catch (err) {
+    deps.log.warn(`Metrics record failed: ${err}`);
+  }
 }
 
 /**
@@ -107,11 +126,14 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
         await cleanBlockedFile(deps.state.engineConfig.projectDir);
         deps.log.info(`Pipeline "${instance.pipelineName}" completed`);
 
+        await recordPipelineMetrics(result.instance, deps);
+
         if (deps.state.parentSessionId) {
           await deps.sessions.injectPrompt(deps.state.parentSessionId, "build", completionMessage(result.instance));
         }
 
         deps.state.activeInstance = undefined;
+        deps.state.learningsInjected = 0;
       }
     } catch (err) {
       deps.log.error(`Pipeline error: ${err}`);

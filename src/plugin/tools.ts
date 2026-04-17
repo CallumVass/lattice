@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { ToolDefinition } from "@opencode-ai/plugin/tool";
 import { tool } from "@opencode-ai/plugin/tool";
 import { cleanSignals, saveInstance, startPipeline } from "../engine/index.js";
-import { count as countLearnings, resolveLearningsConfig } from "../learnings/index.js";
+import { count as countLearnings, resolveLearningsConfig, trailingAverage } from "../learnings/index.js";
 import type { PluginState } from "./state.js";
 
 interface ToolDeps {
@@ -41,6 +41,7 @@ export function createLatticeRunTool(deps: ToolDeps): ToolDefinition {
         await cleanSignals(state.engineConfig.projectDir);
         const flat = getFlattened(args.pipeline);
         state.parentSessionId = context.sessionID;
+        state.learningsInjected = 0;
         const result = await startPipeline(flat, args.goal, state.engineConfig);
         state.activeInstance = result.instance;
 
@@ -92,6 +93,13 @@ export function createLatticeStatusTool(deps: ToolDeps): ToolDefinition {
             ? "Learnings: 0 entries"
             : `Learnings: ${summary.entries} entries (last: ${summary.lastCapturedAt})`,
         );
+
+        const avg = await trailingAverage("findingsCount", 5, {
+          projectDir: deps.state.engineConfig.projectDir,
+        });
+        if (avg !== undefined) {
+          lines.push(`Findings (last 5 runs avg): ${avg.toFixed(1)} per run`);
+        }
       }
 
       return lines.join("\n");
