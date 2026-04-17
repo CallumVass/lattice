@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/CallumVass/lattice/compare/lattice-v1.5.0...lattice-v1.6.0) (2026-04-17)
+
+
+### Features
+
+* **learnings:** jira drafter NFRs + insights surface ([3377bc4](https://github.com/CallumVass/lattice/commit/3377bc491f97df4112aca7f2c0a2cab6767cc9e0))
+
 ## [1.5.0](https://github.com/CallumVass/lattice/compare/lattice-v1.4.0...lattice-v1.5.0) (2026-04-17)
 
 
