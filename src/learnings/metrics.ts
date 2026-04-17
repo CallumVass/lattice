@@ -70,15 +70,20 @@ export function summarizeFindings(text: string | undefined): {
  * Average a numeric metric across the last `n` recorded runs. Returns
  * `undefined` when no runs are recorded yet so callers can suppress the
  * surface rather than render `NaN` / `0.0` for a never-used feature.
+ *
+ * When `pipeline` is provided, only runs for that pipeline name are
+ * considered — useful for `/lattice-status` splitting review vs implement.
  */
 export async function trailingAverage(
   field: keyof RunMetrics,
   n: number,
-  opts: MetricsOptions,
+  opts: MetricsOptions & { pipeline?: string },
 ): Promise<number | undefined> {
   const rows = await readAll(opts);
   if (rows.length === 0) return undefined;
-  const slice = rows.slice(-n);
+  const filtered = opts.pipeline ? rows.filter((r) => r.pipeline === opts.pipeline) : rows;
+  if (filtered.length === 0) return undefined;
+  const slice = filtered.slice(-n);
   let sum = 0;
   let count = 0;
   for (const row of slice) {

@@ -76,6 +76,16 @@ describe("trailingAverage", () => {
     const avg = await trailingAverage("findingsCount", 5, { projectDir });
     expect(avg).toBe(5);
   });
+
+  it("filters by pipeline when the option is provided", async () => {
+    await recordRun(fixture({ pipeline: "review", findingsCount: 10 }), { projectDir });
+    await recordRun(fixture({ pipeline: "implement", findingsCount: 2 }), { projectDir });
+    await recordRun(fixture({ pipeline: "implement", findingsCount: 4 }), { projectDir });
+
+    expect(await trailingAverage("findingsCount", 5, { projectDir, pipeline: "review" })).toBe(10);
+    expect(await trailingAverage("findingsCount", 5, { projectDir, pipeline: "implement" })).toBe(3);
+    expect(await trailingAverage("findingsCount", 5, { projectDir, pipeline: "architecture" })).toBeUndefined();
+  });
 });
 
 describe("summarizeFindings", () => {

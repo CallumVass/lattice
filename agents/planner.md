@@ -37,6 +37,15 @@ If the issue is explicitly a scaffold/bootstrap slice, plan only the minimum pla
 
 Choose tools appropriate to the project's ecosystem. Do NOT assume a JavaScript stack in a non-JS project.
 
+## Codebase learnings
+
+If a `codebase-learnings` skill is present in your loaded skills, scan it BEFORE drafting the plan. Each entry has a short id and a pattern that prior review findings flagged on this repo.
+
+- If ≥1 entry is relevant to this goal, add a `## Known Codebase Risks` section to the plan listing those entries as `- (learning: <id>) <pattern>` — one line each, no extra prose.
+- When a task in your Boundary Tests or Unit Tests is deliberately pre-empting a learning, cite the id inline in that task description, e.g. `1. Add null guard on user.email (learning: a1b2c3d4).`
+- Do NOT list every learning — omit irrelevant ones. If none apply, omit the `## Known Codebase Risks` section entirely; do not write an empty heading.
+- Use the short id exactly as it appears in the skill (8 chars) so the feedback loop can parse citations.
+
 ## Output format
 
 Write the plan to `.lattice/plans/<slug>.md`:
@@ -46,6 +55,10 @@ Write the plan to `.lattice/plans/<slug>.md`:
 
 ### Context
 <1-3 sentences>
+
+## Known Codebase Risks
+<!-- include this section only when ≥1 codebase-learnings entry is relevant -->
+- (learning: <id>) <one-line pattern>
 
 ### Structural Plan
 - Owning boundary: `<path>`

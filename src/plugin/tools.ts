@@ -94,11 +94,17 @@ export function createLatticeStatusTool(deps: ToolDeps): ToolDefinition {
             : `Learnings: ${summary.entries} entries (last: ${summary.lastCapturedAt})`,
         );
 
-        const avg = await trailingAverage("findingsCount", 5, {
-          projectDir: deps.state.engineConfig.projectDir,
-        });
-        if (avg !== undefined) {
-          lines.push(`Findings (last 5 runs avg): ${avg.toFixed(1)} per run`);
+        const projectDir = deps.state.engineConfig.projectDir;
+        const overall = await trailingAverage("findingsCount", 5, { projectDir });
+        if (overall !== undefined) {
+          lines.push(`Findings (last 5 runs avg): ${overall.toFixed(1)} per run`);
+        }
+
+        for (const pipeline of ["review", "implement"] as const) {
+          const avg = await trailingAverage("findingsCount", 5, { projectDir, pipeline });
+          if (avg !== undefined) {
+            lines.push(`Findings (${pipeline}, last 5): ${avg.toFixed(1)} per run`);
+          }
         }
       }
 

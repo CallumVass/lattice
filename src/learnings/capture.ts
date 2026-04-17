@@ -9,7 +9,7 @@ interface CaptureLogger {
 }
 
 const DEFAULT_STORE_PATH = ".lattice/learnings.jsonl";
-const DEFAULT_AGENTS = ["code-reviewer"];
+const DEFAULT_AGENTS = ["code-reviewer", "planner"];
 const DEFAULT_MAX_PER_AGENT = 5;
 const DEFAULT_CONFIDENCE_THRESHOLD = 0.5;
 
@@ -56,10 +56,11 @@ export async function captureLearningsFromReview(
     const findingsText = proposeStage?.summary;
     if (!findingsText) return;
 
+    // No explicit agent: extractor defaults blocking/advisory entries to "*"
+    // so planner + reviewer + jira-drafter all see review-origin learnings.
     const entries = extractFromFindings(findingsText, {
       stageId: "propose-comments",
       goal: instance.goal,
-      agent: "code-reviewer",
     });
 
     if (entries.length === 0) return;

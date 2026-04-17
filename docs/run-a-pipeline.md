@@ -32,6 +32,12 @@ plan -> arch-review -> implement -> refactor -> review-loop (code-review -> revi
 - `implement` completes when every checklist item in that plan is checked
 - The final stage is `review-loop`, an internal review pipeline where a `reject` from the judge pauses the run so the implementor can retry. This is different from the standalone `/review` — see below.
 
+### Known codebase risks in the plan
+
+If `.lattice/learnings.jsonl` has entries captured from prior reviews (see "Learnings capture" below), the planner scans them before drafting and adds a `## Known Codebase Risks` section to the plan — one line per relevant entry in the form `- (learning: <id>) <pattern>`. Tasks that intentionally pre-empt one of those patterns cite the id inline, e.g. `1. Add null guard on user.email (learning: a1b2c3d4).`
+
+The section is conditional: if no captured learnings are relevant to the goal, the planner omits it entirely rather than writing an empty heading.
+
 ## What `/review` Does
 
 ```text
@@ -53,6 +59,8 @@ If you want review feedback that blocks an implementor loop (instead of posting 
 ### Learnings capture
 
 Once `post-comments` finishes successfully, lattice extracts each posted finding into `.lattice/learnings.jsonl` — one JSON entry per finding (severity, file/line, derived category, source PR, timestamp). The store grows over time and is auto-added to `.gitignore` on the first capture so it stays local. `/lattice-status` reports the current count and the last-captured timestamp.
+
+Blocking and advisory entries are tagged `agent: "*"` so downstream consumers — the code-reviewer and the `/implement` planner — both see them. On subsequent runs, the planner cites relevant entries in a `## Known Codebase Risks` section of the plan, and `/lattice-status` shows trailing-average findings-per-run split by pipeline (e.g. `Findings (review, last 5): 1.8 per run`, `Findings (implement, last 5): 0.2 per run`).
 
 Capture is best-effort: a malformed finding or write error logs a warning but never fails the pipeline or the comments that were already posted. Disable it with `learnings.enabled: false` in `.lattice/config.jsonc` (see [configuration](configuration.md)).
 

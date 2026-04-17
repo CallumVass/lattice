@@ -202,7 +202,7 @@ describe("review pipeline → learnings capture", () => {
       expect(() => learningEntrySchema.parse(entry)).not.toThrow();
       expect(entry.source.pr).toBe("acme/widgets#472");
       expect(entry.source.stageId).toBe("propose-comments");
-      expect(entry.agent).toBe("code-reviewer");
+      expect(entry.agent).toBe("*");
     }
     const blocking = entries.filter((e: { severity: string }) => e.severity === "blocking");
     const advisory = entries.filter((e: { severity: string }) => e.severity === "advisory");

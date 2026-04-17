@@ -112,4 +112,17 @@ describe("extractFromFindings", () => {
   it("returns [] for unparseable junk", () => {
     expect(extractFromFindings("totally not a findings report", { stageId: "propose-comments" })).toEqual([]);
   });
+
+  it("defaults blocking/advisory entries to agent '*' so all consumers see them", () => {
+    const entries = extractFromFindings(COMPOSER_OUTPUT, { stageId: "propose-comments" });
+    expect(entries.length).toBeGreaterThan(0);
+    for (const entry of entries) {
+      expect(entry.agent).toBe("*");
+    }
+  });
+
+  it("respects an explicit source.agent override", () => {
+    const entries = extractFromFindings(ALT_FORMAT_OUTPUT, { stageId: "propose-comments", agent: "code-reviewer" });
+    expect(entries[0]?.agent).toBe("code-reviewer");
+  });
 });
