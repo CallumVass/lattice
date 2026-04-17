@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/CallumVass/lattice/compare/lattice-v1.3.0...lattice-v1.4.0) (2026-04-17)
+
+
+### Features
+
+* **learnings:** inject learnings into planner stage ([ab7ae29](https://github.com/CallumVass/lattice/commit/ab7ae29a4c7e8bf565994ad50468e8316c128298))
+
 ## [1.3.0](https://github.com/CallumVass/lattice/compare/lattice-v1.2.0...lattice-v1.3.0) (2026-04-17)
 
 
