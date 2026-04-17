@@ -38,7 +38,7 @@ Project config overrides global config.
   "learnings": {
     "enabled": true,
     "storePath": ".lattice/learnings.jsonl",
-    "agents": ["code-reviewer", "planner"],
+    "agents": ["code-reviewer", "planner", "jira-planner"],
     "maxPerAgent": 5,
     "confidenceThreshold": 0.5,
     "decayRate": 0.05,
@@ -61,6 +61,8 @@ Project config overrides global config.
 
 ## Learnings
 
+See [`learnings.md`](learnings.md) for the full learning-loop walkthrough (capture, injection per agent, decay, feedback, compaction, insights). The settings below are the subset you can override in `.lattice/config.jsonc`.
+
 After a `/review` run finishes posting comments, lattice writes one structured entry per posted finding to `learnings.storePath` (default `.lattice/learnings.jsonl`). The file is appended-to over time and added to `.gitignore` on the first capture.
 
 On subsequent runs the reviewer sees a synthetic `codebase-learnings` skill injected alongside normal skills, holding the top-ranked entries for that agent. It cites them back in new findings as `(learning: <id>)` so recurrences are tagged. The `/implement` planner also sees the skill and adds a `## Known Codebase Risks` section to the plan when any captured entries apply to the goal.
@@ -69,7 +71,7 @@ Per-run aggregate stats (findings count, by-category breakdown, learnings inject
 
 - `learnings.enabled` (default `true`) — toggle capture AND injection. When `false`, no entries are written, no learnings skill is injected, and `/lattice-status` omits the learnings line.
 - `learnings.storePath` (default `.lattice/learnings.jsonl`) — relative to the project root, or absolute.
-- `learnings.agents` (default `["code-reviewer", "planner"]`) — which agents receive the synthetic learnings skill. Use `"*"` as an entry to cover every agent.
+- `learnings.agents` (default `["code-reviewer", "planner", "jira-planner"]`) — which agents receive the synthetic learnings skill. Use `"*"` as an entry to cover every agent.
 - `learnings.maxPerAgent` (default `5`) — cap on entries rendered into the synthetic skill.
 - `learnings.confidenceThreshold` (default `0.5`) — entries below this are dropped before ranking.
 - `learnings.decayRate` (default `0.05`, per day) — age-based exponential decay applied to confidence; higher values make stale entries fall out of ranking faster.

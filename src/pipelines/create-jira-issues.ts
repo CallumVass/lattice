@@ -8,7 +8,9 @@ export default pipeline("create-jira-issues", {
       agent: "jira-planner",
       completion: "tool_signal",
       fork: false,
-      skills: { dynamic: false, pinned: ["writing-style"], max: 2 },
+      // max: 3 leaves headroom for the synthetic `codebase-learnings` skill
+      // injected by the learning-loop alongside the pinned writing-style skill.
+      skills: { dynamic: false, pinned: ["writing-style"], max: 3 },
     }),
     stage("create", {
       agent: "jira-planner",

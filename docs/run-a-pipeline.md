@@ -12,6 +12,7 @@
 - `/lattice-abort`: stop the active pipeline
 - `/lattice-retry`: resume a paused pipeline. At the `/review` approval gate accepts `kill:[ids]` to drop specific findings before posting (see "Dropping a finding" below)
 - `/lattice-learning-feedback <id> valid|invalid|stale`: adjust a single captured learning
+- `/lattice-insights`: print a markdown report of the learning-loop trend, top reinforced patterns, near-expiry entries, and negative count. Optional `since:YYYY-MM-DD` narrows the trend window
 
 The goal can be free text, an issue number, or a URL.
 
@@ -108,7 +109,7 @@ If the Atlassian MCP is not configured, the investigator will offer to proceed w
 draft -> create
 ```
 
-Stage `draft` gathers inputs, fetches Confluence docs and an example ticket via the Atlassian MCP, explores the codebase, writes drafts to `.lattice/plans/<goal-slug>.md`, and asks for approval in chat. It signals `complete` on approval or `blocked` on cancellation.
+Stage `draft` gathers inputs, fetches Confluence docs and an example ticket via the Atlassian MCP, explores the codebase, writes drafts to `.lattice/plans/<goal-slug>.md`, and asks for approval in chat. It signals `complete` on approval or `blocked` on cancellation. When the learning loop has stored entries relevant to a drafted ticket, the agent appends a `## Non-Functional Requirements` section citing the short learning ids — see [`learnings.md`](learnings.md) for the full flow.
 
 Stage `create` forks from `draft`, reads the approved plan, creates the epic (if drafted) and each issue via the Atlassian MCP, and runs a single repair attempt per draft if Jira rejects it. It finishes with a summary of created keys and any failures.
 

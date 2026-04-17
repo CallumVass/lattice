@@ -12,6 +12,7 @@ import type { PluginState } from "./state.js";
 import { AgentTracker, buildSystemTransform, SkillStore } from "./system-transform.js";
 import {
   createLatticeAbortTool,
+  createLatticeInsightsTool,
   createLatticeLearningFeedbackTool,
   createLatticeRetryTool,
   createLatticeRunTool,
@@ -93,6 +94,7 @@ const server: Plugin = async ({ client, directory }) => {
       lattice_retry: createLatticeRetryTool(toolDeps),
       lattice_signal: createLatticeSignalTool(toolDeps),
       lattice_learning_feedback: createLatticeLearningFeedbackTool(toolDeps),
+      lattice_insights: createLatticeInsightsTool(toolDeps),
     },
 
     async config(config) {
@@ -132,6 +134,13 @@ const server: Plugin = async ({ client, directory }) => {
         template:
           "The user has invoked /lattice-learning-feedback. The arguments are `<id> <verdict>` where verdict is one of valid, invalid, stale. " +
           "Call the lattice_learning_feedback tool with those arguments. Do not call any other lattice tools.",
+      };
+      config.command["lattice-insights"] = {
+        description: "Show a markdown report of the learning-loop insights",
+        template:
+          "The user has invoked /lattice-insights. Call the lattice_insights tool. " +
+          "If the user passed a date like `since:2026-03-01`, pass it as the `since` argument. " +
+          "Do not call any other lattice tools.",
       };
     },
 
