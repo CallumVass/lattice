@@ -40,7 +40,11 @@ Project config overrides global config.
     "storePath": ".lattice/learnings.jsonl",
     "agents": ["code-reviewer", "planner"],
     "maxPerAgent": 5,
-    "confidenceThreshold": 0.5
+    "confidenceThreshold": 0.5,
+    "decayRate": 0.05,
+    "reinforcementBoost": 0.15,
+    "invalidPenalty": 0.4,
+    "similarityThreshold": 0.7
   }
 }
 ```
@@ -68,6 +72,20 @@ Per-run aggregate stats (findings count, by-category breakdown, learnings inject
 - `learnings.agents` (default `["code-reviewer", "planner"]`) — which agents receive the synthetic learnings skill. Use `"*"` as an entry to cover every agent.
 - `learnings.maxPerAgent` (default `5`) — cap on entries rendered into the synthetic skill.
 - `learnings.confidenceThreshold` (default `0.5`) — entries below this are dropped before ranking.
+- `learnings.decayRate` (default `0.05`, per day) — age-based exponential decay applied to confidence; higher values make stale entries fall out of ranking faster.
+- `learnings.reinforcementBoost` (default `0.15`) — confidence added each time an entry is re-seen on a new run or marked `valid` via `/lattice-learning-feedback` (capped at 1.0).
+- `learnings.invalidPenalty` (default `0.4`) — multiplicative confidence drop applied on an `invalid` feedback verdict; `feedbackScore` also drops by 0.5.
+- `learnings.similarityThreshold` (default `0.7`) — Jaccard threshold used to merge near-duplicate entries on pipeline start and to decide whether a fresh finding reinforces an existing one instead of creating a duplicate.
+
+### Feedback verdicts
+
+`/lattice-learning-feedback <id> valid|invalid|stale` adjusts a single entry:
+
+- `valid` → confidence boosted by `reinforcementBoost`, `feedbackScore` bumped toward `+1`.
+- `invalid` → confidence dropped by `invalidPenalty`, `feedbackScore` bumped toward `-1`; the entry stays in the store but ranks lower.
+- `stale` → `expiresAt` set to now; the selector filters it out of every future injection.
+
+The id can be the full uuid or the 8-char short id shown inline in the synthetic `codebase-learnings` skill (e.g. `a1b2c3d4`).
 
 ## Notes
 

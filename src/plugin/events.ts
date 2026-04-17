@@ -95,7 +95,14 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
 
       const justCompleted = result.instance.stages.find((s) => s.id === currentStage.id);
       if (justCompleted) {
-        await captureLearningsFromReview(result.instance, justCompleted, deps.state.engineConfig, deps.log);
+        await captureLearningsFromReview(result.instance, justCompleted, deps.state.engineConfig, deps.log, {
+          killIndices: deps.state.pendingKills,
+          originalSummary: deps.state.originalProposeSummary,
+        });
+        if (justCompleted.id === "post-comments") {
+          deps.state.pendingKills = undefined;
+          deps.state.originalProposeSummary = undefined;
+        }
       }
 
       if (result.instance.status === "running" && deps.state.parentSessionId) {

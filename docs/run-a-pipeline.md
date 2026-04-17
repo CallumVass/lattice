@@ -10,7 +10,8 @@
 - `/create-jira-issues <goal>`: draft and create Jira issues (needs the Atlassian MCP)
 - `/lattice-status`: show current pipeline status
 - `/lattice-abort`: stop the active pipeline
-- `/lattice-retry`: resume a paused pipeline
+- `/lattice-retry`: resume a paused pipeline. At the `/review` approval gate accepts `kill:[ids]` to drop specific findings before posting (see "Dropping a finding" below)
+- `/lattice-learning-feedback <id> valid|invalid|stale`: adjust a single captured learning
 
 The goal can be free text, an issue number, or a URL.
 
@@ -49,7 +50,7 @@ The standalone `/review` is a read-only PR review. It never attempts fixes and n
 - `code-review` walks a structured checklist and signals `complete` with its FINDINGS report.
 - `review-judge` (the `pr-review-judge` agent) validates each finding against the real code, drops anything it cannot verify, and signals `complete` with the survivors.
 - `advisory-review` (the `architecture-reviewer` agent) runs an additive pass over the same diff looking for architectural friction and refactor opportunities — advisory only, not blocking.
-- `propose-comments` (the `pr-review-composer` agent) merges the blocking survivors with the advisory notes, writes the proposed PR comment set to `.lattice/plans/`, and pauses the pipeline. Review the proposal, then run `/lattice-retry` to post — reply with any tweaks first and they'll be passed through.
+- `propose-comments` (the `pr-review-composer` agent) merges the blocking survivors with the advisory notes, numbers every finding 1-indexed across both sections, writes the proposed PR comment set to `.lattice/plans/`, and pauses the pipeline. Review the proposal, then run `/lattice-retry` to post — reply with any tweaks first and they'll be passed through. Run `/lattice-retry kill:[2,4]` to drop findings 2 and 4 before posting; the dropped ones are saved as `severity: "negative"` learnings so the reviewer stops flagging that exact pattern next time.
 - `post-comments` (the `pr-commenter` agent) posts each approved comment as an inline PR review comment via `gh api`. Comments without a file/line fall back to a general PR comment.
 
 Pass a PR URL or PR number as the goal, e.g. `/review 472` or `/review https://github.com/OWNER/REPO/pull/472`. The pipeline needs `gh` authenticated for the target repo.
@@ -63,6 +64,25 @@ Once `post-comments` finishes successfully, lattice extracts each posted finding
 Blocking and advisory entries are tagged `agent: "*"` so downstream consumers — the code-reviewer and the `/implement` planner — both see them. On subsequent runs, the planner cites relevant entries in a `## Known Codebase Risks` section of the plan, and `/lattice-status` shows trailing-average findings-per-run split by pipeline (e.g. `Findings (review, last 5): 1.8 per run`, `Findings (implement, last 5): 0.2 per run`).
 
 Capture is best-effort: a malformed finding or write error logs a warning but never fails the pipeline or the comments that were already posted. Disable it with `learnings.enabled: false` in `.lattice/config.jsonc` (see [configuration](configuration.md)).
+
+### Dropping a finding at the approval gate
+
+When `/review` pauses after `propose-comments`, you can reply:
+
+- `/lattice-retry` — post every finding as-is (default).
+- `/lattice-retry kill:[2,4]` — drop findings 2 and 4 (1-indexed across blocking + advisory). The poster only sees survivors; dropped findings are written as `severity: "negative"` learnings scoped to the reviewer, so the same false positive won't recur on the next PR.
+
+### Per-finding feedback
+
+Every injected learning carries an 8-char id like `(learning: a1b2c3d4)`. Use `/lattice-learning-feedback a1b2c3d4 valid|invalid|stale` to:
+
+- `valid` — reinforce the entry (future runs lean on it more heavily).
+- `invalid` — drop its confidence and feedbackScore sharply; it stays in the store but ranks below untouched entries.
+- `stale` — expire it immediately so the selector stops injecting it.
+
+### Compaction on pipeline start
+
+Every pipeline start (not just `/review`) runs a cheap dedup pass over `.lattice/learnings.jsonl`: entries in the same category and severity whose patterns overlap enough get merged into one reinforced row. When anything merged, `/lattice-status` shows `Learnings: N entries … (M merged on last compaction)` so you can see the loop catching its own duplicates.
 
 ## What `/review-lite` Does
 

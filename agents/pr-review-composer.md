@@ -36,30 +36,34 @@ The pipeline pauses after your stage so the user can read the proposed comments.
 
 ## Output format
 
+The first line is a usage hint for the user — include it verbatim so they know how to drop findings before posting. Number every finding 1-indexed across both sections combined (blocking first, then advisory). Numbering is stable — the retry tool maps `kill:[ids]` back to these numbers.
+
 ```
 PROPOSED COMMENTS
 
+Reply `/lattice-retry` to post all, or `/lattice-retry kill:[2,4]` to drop those before posting.
+
 ## Blocking
 
-### path/to/file.ts:42
+### Finding 1: path/to/file.ts:42
 <comment body, 1-2 sentences, optional ```suggestion block>
 
-### path/to/other.ts:10
+### Finding 2: path/to/other.ts:10
 <comment body>
 
 ## Advisory
 
-### path/to/file.ts:88
+### Finding 3: path/to/file.ts:88
 <comment body, softer tone>
 
-### (general)
+### Finding 4: (general)
 <comment body for architecture concerns with no single line — poster falls back to a general PR comment>
 
 ## Review decision
 <approve | request-changes> — <one-line rationale>
 ```
 
-Omit `## Blocking` or `## Advisory` if that bucket is empty. If both are empty, emit `NO_FINDINGS` (see step 2). Always include the review decision line:
+Numbering continues across sections (blocking findings take numbers 1..N, advisory findings N+1..M). Omit `## Blocking` or `## Advisory` if that bucket is empty. If both are empty, emit `NO_FINDINGS` (see step 2). Always include the review decision line:
 
 - At least one blocking comment → `request-changes`.
 - Only advisory (or no) comments → `approve`.

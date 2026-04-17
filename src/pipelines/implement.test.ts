@@ -55,6 +55,9 @@ function makeState(latticeConfig: LatticeConfig, registry: PipelineRegistry): Pl
     parentSessionId: "session-1",
     engineConfig,
     learningsInjected: 0,
+    pendingKills: undefined,
+    originalProposeSummary: undefined,
+    lastCompactionMerged: 0,
   };
 }
 

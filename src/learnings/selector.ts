@@ -24,8 +24,12 @@ function passesConfidence(entry: LearningEntry, threshold: number): boolean {
   return entry.confidence >= threshold;
 }
 
+function weight(entry: LearningEntry): number {
+  return entry.confidence * (1 + entry.feedbackScore);
+}
+
 function sortByConfidenceDesc(entries: LearningEntry[]): LearningEntry[] {
-  return [...entries].sort((a, b) => b.confidence - a.confidence);
+  return [...entries].sort((a, b) => weight(b) - weight(a));
 }
 
 /**

@@ -27,7 +27,7 @@ interface RawFinding {
   fix?: string;
 }
 
-const FINDING_HEADING = /^#{2,6}\s*Finding:\s*(.+?)\s*$/i;
+const FINDING_HEADING = /^#{2,6}\s*(?:\d+[.)]?\s+)?Finding(?:\s+\d+)?\s*:\s*(.+?)\s*$/i;
 const SECTION_BLOCKING = /^##\s+Blocking\s*$/i;
 const SECTION_ADVISORY = /^##\s+Advisory\s*$/i;
 
