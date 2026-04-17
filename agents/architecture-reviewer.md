@@ -51,3 +51,9 @@ When reviewing an implementation plan, check:
 4. Are there architectural concerns the plan misses?
 
 Output a brief critique with specific suggestions, or confirm the plan looks sound.
+
+## Signalling
+
+When finished, call `lattice_signal(status: "complete", reason: "<your critique>")`.
+
+The `reason` must contain the full critique (or `Plan looks sound — no architectural concerns.` if you have nothing). The pipeline pauses after this stage and the user reads your `reason` to decide whether to proceed. Do NOT leave `reason` empty or write it as a separate chat message — only the signal `reason` is shown during the pause.

@@ -26,8 +26,8 @@ const INCOMPLETE: CompletionResult = { complete: false };
 async function checkPlanCreated(ctx: CompletionContext): Promise<CompletionResult> {
   const path = `${ctx.plansDir}/${ctx.slug}.md`;
   try {
-    await readFile(path, "utf-8");
-    return { complete: true, summary: `Plan created at ${path}` };
+    const content = await readFile(path, "utf-8");
+    return { complete: true, summary: `Plan at ${path}:\n\n${content.trim()}` };
   } catch {
     return INCOMPLETE;
   }
