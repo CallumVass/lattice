@@ -2,13 +2,14 @@
 
 Lattice is an OpenCode plugin and TypeScript library for running agent pipelines.
 
-At a high level it does five things:
+At a high level it does six things:
 
 1. Registers slash commands from pipeline definitions.
 2. Starts the right agent for each stage.
 3. Decides whether a stage should reuse context or start cold.
 4. Injects relevant skills into the active agent.
 5. Persists pipeline state so runs survive restarts.
+6. Captures review findings into a per-repo learning store and injects them back into future runs (reviewer, planner, jira-drafter). See [`learnings.md`](learnings.md) and the `/lattice-insights` command.
 
 ## Built-in Pipelines
 

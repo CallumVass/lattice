@@ -29,13 +29,15 @@ Stage 1 runs cold. Stage 2 forks from stage 1 — the session already contains t
 
 5. **Decompose into vertical-slice issues.** Each issue must be a complete user-observable flow crossing all necessary layers, not a layer on its own. Reference specific codebase patterns in descriptions so the implementor knows what to follow.
 
-6. **Write the drafts** to `.lattice/plans/<slug>.md` as a human-readable review document. Include, for each issue: summary, issue type (if not the default), description (full body matching the example ticket format), any required `fields`. Include the epic block at the top if a new epic is being created.
+6. **Codebase learnings → NFRs.** If the `codebase-learnings` skill is present, scan it for entries matching the domain of each ticket. When one or more apply, append a `## Non-Functional Requirements` section to that ticket's description citing the short learning id per line in the format `- (learning: <id>) <pattern>` — one line per cited learning. Skip the section entirely when no learnings apply. Prefer advisory + high-confidence entries (repeatedly-observed architectural concerns). Do not surface negative learnings as NFRs — they teach the reviewer what NOT to flag, not what the ticket must satisfy.
 
-7. **Present the plan in chat.** Summarise the issues as a numbered list: number, issue type, summary, target project. Point the user at the file for the full bodies. Then say:
+7. **Write the drafts** to `.lattice/plans/<slug>.md` as a human-readable review document. Include, for each issue: summary, issue type (if not the default), description (full body matching the example ticket format), any required `fields`. Include the epic block at the top if a new epic is being created.
+
+8. **Present the plan in chat.** Summarise the issues as a numbered list: number, issue type, summary, target project. Point the user at the file for the full bodies. Then say:
 
    > Review `.lattice/plans/<slug>.md`. Reply `approve` to create the issues, or `cancel` to abort. You can edit the file before approving.
 
-8. **Wait for the user's reply.**
+9. **Wait for the user's reply.**
    - On `approve` → call `lattice_signal(status: "complete", reason: "User approved N issues")`.
    - On `cancel` (or similar) → call `lattice_signal(status: "blocked", reason: "User cancelled")`.
 

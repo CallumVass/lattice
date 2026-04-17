@@ -5,7 +5,8 @@
 export { captureLearningsFromReview, type ResolvedLearningsConfig, resolveLearningsConfig } from "./capture.js";
 export { compact } from "./compaction.js";
 export { applyFeedback } from "./feedback.js";
-export { recordRun, summarizeFindings, trailingAverage } from "./metrics.js";
+export { type FindingsTrend, findingsTrendByCategory, nearExpiry, negativeCount, topReinforced } from "./insights.js";
+export { readAll as readAllMetrics, recordRun, summarizeFindings, trailingAverage } from "./metrics.js";
 export { selectLearningsForAgent } from "./selector.js";
 export { renderLearningsAsSkill } from "./skill-generator.js";
 export { count, readAll as readAllLearnings, writeAll as writeAllLearnings } from "./storage.js";

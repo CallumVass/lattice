@@ -11,7 +11,7 @@ interface CaptureLogger {
 }
 
 const DEFAULT_STORE_PATH = ".lattice/learnings.jsonl";
-const DEFAULT_AGENTS = ["code-reviewer", "planner"];
+const DEFAULT_AGENTS = ["code-reviewer", "planner", "jira-planner"];
 const DEFAULT_MAX_PER_AGENT = 5;
 const DEFAULT_CONFIDENCE_THRESHOLD = 0.5;
 const DEFAULT_DECAY_RATE = 0.05;

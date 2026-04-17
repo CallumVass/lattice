@@ -13,6 +13,8 @@ It ships with six built-in pipelines:
 
 Lattice handles stage orchestration, session reuse vs cold starts, skill injection, and persisted pipeline state in `.lattice/`.
 
+A learning loop captures structured findings from every `/review` run, decays them over time, and feeds them back into the reviewer, the `/implement` planner, and the `/create-jira-issues` drafter so pipelines get sharper per codebase over time. See [`docs/learnings.md`](docs/learnings.md).
+
 ## Install
 
 Register the npm package directly in `opencode.json`. OpenCode will download it:
@@ -51,6 +53,7 @@ Run one of these inside OpenCode:
 - `/investigate event sourcing for the billing service`
 - `/create-jira-issues decompose the confluence doc into tickets`
 - `/lattice-status`
+- `/lattice-insights`
 
 ## Docs
 
@@ -61,6 +64,7 @@ Run one of these inside OpenCode:
 - `docs/configuration.md`: override agents, stages, and skill paths
 - `docs/skills.md`: how skill discovery and selection works
 - `docs/state-and-completion.md`: `.lattice/` files, stage completion, retry behavior
+- `docs/learnings.md`: capture, injection, decay, feedback, and `/lattice-insights`
 
 ## Development
 

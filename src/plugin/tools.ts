@@ -7,11 +7,18 @@ import {
   applyFeedback,
   compact,
   count as countLearnings,
+  type FindingsTrend,
+  findingsTrendByCategory,
+  nearExpiry,
+  negativeCount,
   readAllLearnings,
+  readAllMetrics,
   resolveLearningsConfig,
+  topReinforced,
   trailingAverage,
   writeAllLearnings,
 } from "../learnings/index.js";
+import type { LearningEntry } from "../schema/index.js";
 import type { PluginState } from "./state.js";
 
 interface ToolDeps {
@@ -373,6 +380,127 @@ export function createLatticeLearningFeedbackTool(deps: ToolDeps): ToolDefinitio
         log.error(`Learning feedback failed: ${msg}`);
         return `Failed to apply feedback: ${msg}`;
       }
+    },
+  });
+}
+
+const EMPTY_TREND = "_No metrics recorded yet._";
+const EMPTY_REINFORCED = "_No learnings captured yet._";
+const EMPTY_NEAR_EXPIRY = "_No learnings near expiry._";
+const DEFAULT_INSIGHTS_WINDOW_DAYS = 56;
+
+function shortId(id: string): string {
+  return id.length > 8 ? id.slice(0, 8) : id;
+}
+
+function formatTrendTable(trend: FindingsTrend): string {
+  const categories = Object.keys(trend).sort();
+  if (categories.length === 0) return EMPTY_TREND;
+
+  const weekSet = new Set<string>();
+  for (const buckets of Object.values(trend)) {
+    for (const bucket of buckets) weekSet.add(bucket.weekStart);
+  }
+  const weeks = [...weekSet].sort();
+  if (weeks.length === 0) return EMPTY_TREND;
+
+  const lines: string[] = [];
+  lines.push(`| Category | ${weeks.join(" | ")} |`);
+  lines.push(`| --- | ${weeks.map(() => "---").join(" | ")} |`);
+  for (const category of categories) {
+    const row: string[] = [];
+    for (const week of weeks) {
+      const bucket = trend[category]?.find((b) => b.weekStart === week);
+      row.push(String(bucket?.count ?? 0));
+    }
+    lines.push(`| ${category} | ${row.join(" | ")} |`);
+  }
+  return lines.join("\n");
+}
+
+function formatTopReinforced(entries: LearningEntry[]): string {
+  if (entries.length === 0) return EMPTY_REINFORCED;
+  return entries
+    .map(
+      (entry, i) =>
+        `${i + 1}. \`${shortId(entry.id)}\` [${entry.severity}] (${entry.category}) ${entry.pattern} — reinforced ${entry.reinforcementCount}× (confidence ${entry.confidence.toFixed(2)})`,
+    )
+    .join("\n");
+}
+
+function formatNearExpiry(entries: LearningEntry[]): string {
+  if (entries.length === 0) return EMPTY_NEAR_EXPIRY;
+  return entries
+    .map(
+      (entry, i) =>
+        `${i + 1}. \`${shortId(entry.id)}\` [${entry.severity}] (${entry.category}) ${entry.pattern} — last seen ${entry.lastSeenAt.slice(0, 10)} (confidence ${entry.confidence.toFixed(2)})`,
+    )
+    .join("\n");
+}
+
+export function createLatticeInsightsTool(deps: ToolDeps): ToolDefinition {
+  return tool({
+    description:
+      "Show a markdown insights report for the learning loop: weekly findings trend per category, top reinforced learnings, entries near expiry, and negative-entry count. Read-only — safe to call even while a pipeline is running.",
+    args: {
+      since: tool.schema
+        .string()
+        .optional()
+        .describe("Optional ISO date (YYYY-MM-DD). Scopes the trend section to runs on or after this date."),
+    },
+    async execute(args) {
+      const resolved = resolveLearningsConfig(deps.state.engineConfig);
+      if (!resolved.enabled) {
+        return "Learnings are disabled. Enable them in `.lattice/config.jsonc` to build up insights.";
+      }
+
+      const projectDir = deps.state.engineConfig.projectDir;
+      const storage = { projectDir, storePath: resolved.storePath };
+
+      const now = new Date();
+      let windowDays = DEFAULT_INSIGHTS_WINDOW_DAYS;
+      if (args.since) {
+        const since = Date.parse(args.since);
+        if (Number.isFinite(since)) {
+          windowDays = Math.max(1, Math.ceil((now.getTime() - since) / 86_400_000));
+        }
+      }
+
+      const [entries, metrics] = await Promise.all([readAllLearnings(storage), readAllMetrics({ projectDir })]);
+
+      const trend = findingsTrendByCategory(metrics, windowDays, now);
+      const reinforced = topReinforced(entries, 10);
+      const nearest = nearExpiry(
+        entries,
+        5,
+        { confidenceThreshold: resolved.confidenceThreshold, decayRate: resolved.decayRate },
+        now,
+      );
+      const negatives = negativeCount(entries);
+
+      const sections = [
+        "# Lattice learning-loop insights",
+        "",
+        `## Findings trend (last ${windowDays} days)`,
+        "",
+        formatTrendTable(trend),
+        "",
+        "## Top 10 patterns by reinforcement",
+        "",
+        formatTopReinforced(reinforced),
+        "",
+        "## Near expiry (top 5)",
+        "",
+        formatNearExpiry(nearest),
+        "",
+        "## Negative learnings",
+        "",
+        negatives === 0
+          ? "_No negative learnings stored yet._"
+          : `${negatives} false-positive pattern${negatives === 1 ? "" : "s"} this repo has rejected.`,
+      ];
+
+      return sections.join("\n");
     },
   });
 }
