@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/CallumVass/lattice/compare/lattice-v1.4.0...lattice-v1.5.0) (2026-04-17)
+
+
+### Features
+
+* **learnings:** per-finding edit, negative signal, decay, feedback ([bd039d0](https://github.com/CallumVass/lattice/commit/bd039d0b700580169b8bbf2449225c901e233162))
+
 ## [1.4.0](https://github.com/CallumVass/lattice/compare/lattice-v1.3.0...lattice-v1.4.0) (2026-04-17)
 
 
