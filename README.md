@@ -1,19 +1,8 @@
 # Lattice
 
-Lattice is an [OpenCode](https://opencode.ai) plugin for running repeatable multi-agent workflows.
+Lattice is an [OpenCode](https://opencode.ai) plugin for running repeatable multi-agent pipelines.
 
-It ships with six built-in pipelines:
-
-- `architecture`: architecture review
-- `implement`: plan -> architecture review -> implement -> refactor -> internal review loop
-- `review`: PR code-review -> judge -> advisory (architecture + refactor) pass -> propose comments (user approves) -> post as inline PR comments
-- `review-lite`: strict blocking review — code-review -> judge -> propose comments (user approves) -> post (no advisory pass)
-- `investigate`: research a topic and write a spike/RFC markdown file (Confluence references via the [Atlassian MCP](https://github.com/sooperset/mcp-atlassian))
-- `create-jira-issues`: draft vertical-slice Jira issues from PM docs and create them once approved (requires the [Atlassian MCP](https://github.com/sooperset/mcp-atlassian))
-
-Lattice handles stage orchestration, session reuse vs cold starts, skill injection, and persisted pipeline state in `.lattice/`.
-
-A learning loop captures structured findings from every `/review` run, decays them over time, and feeds them back into the reviewer, the `/implement` planner, and the `/create-jira-issues` drafter so pipelines get sharper per codebase over time. See [`docs/learnings.md`](docs/learnings.md).
+It is a framework — not a product with built-in pipelines. You supply the agents, skills, and pipeline definitions; Lattice handles stage orchestration, session reuse vs cold starts, skill injection, and persisted pipeline state in `.lattice/`.
 
 ## Install
 
@@ -42,29 +31,42 @@ Then point OpenCode at the built plugin file:
 }
 ```
 
+## Bring Your Own Content
+
+Lattice discovers content from OpenCode's conventional paths. Project paths override global ones with the same name.
+
+| Content | Project path | Global path |
+| --- | --- | --- |
+| Pipelines | `.opencode/lattice-pipelines/*.ts` | `~/.config/opencode/lattice-pipelines/*.ts` |
+| Agents | `.opencode/agents/*.md` | `~/.config/opencode/agents/*.md` |
+| Skills | `.opencode/skills/<name>/SKILL.md` | `~/.config/opencode/skills/<name>/SKILL.md` |
+
+A pipeline file must have a default export built with the `pipeline` / `stage` / `ref` helpers (see [`docs/custom-pipelines.md`](docs/custom-pipelines.md)). A pipeline named `my-flow` registers `/my-flow <goal>` as a slash command automatically.
+
+## Framework Commands
+
+These three come from Lattice itself, independent of your pipelines:
+
+- `/lattice-status` — show current pipeline state
+- `/lattice-abort` — stop the active pipeline
+- `/lattice-retry [response]` — resume a paused pipeline, optionally with a reply to the pause reason
+
 ## First Use
 
-Run one of these inside OpenCode:
-
-- `/implement fix the login redirect`
-- `/architecture identify the biggest architectural risks`
-- `/review audit the new billing changes`
-- `/review-lite 472`
-- `/investigate event sourcing for the billing service`
-- `/create-jira-issues decompose the confluence doc into tickets`
-- `/lattice-status`
-- `/lattice-insights`
+1. Author a pipeline file and drop it in one of the pipeline paths above.
+2. Make sure every agent it references exists under `agents/`, and every pinned skill exists under `skills/`.
+3. Inside OpenCode, run `/<your-pipeline-name> <goal>`.
+4. Use `/lattice-status` to watch it progress.
 
 ## Docs
 
-- `docs/what-lattice-does.md`: repo overview and core concepts
+- `docs/what-lattice-does.md`: overview and core concepts
 - `docs/install.md`: setup and plugin registration
-- `docs/run-a-pipeline.md`: how to use built-in commands
-- `docs/custom-pipelines.md`: add your own pipeline
-- `docs/configuration.md`: override agents, stages, and skill paths
-- `docs/skills.md`: how skill discovery and selection works
-- `docs/state-and-completion.md`: `.lattice/` files, stage completion, retry behavior
-- `docs/learnings.md`: capture, injection, decay, feedback, and `/lattice-insights`
+- `docs/run-a-pipeline.md`: running a pipeline, pauses, retries
+- `docs/custom-pipelines.md`: authoring a pipeline
+- `docs/configuration.md`: overriding agents, stages, and skill paths
+- `docs/skills.md`: skill discovery and selection
+- `docs/state-and-completion.md`: `.lattice/` files, completion methods, retry behavior
 
 ## Development
 

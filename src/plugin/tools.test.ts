@@ -34,10 +34,6 @@ function makeState(registry: PipelineRegistry, activeInstance?: PipelineInstance
       projectDir,
       latticeConfig: {},
     },
-    learningsInjected: 0,
-    pendingKills: undefined,
-    originalProposeSummary: undefined,
-    lastCompactionMerged: 0,
   };
 }
 
@@ -125,78 +121,44 @@ describe("createLatticeRunTool", () => {
 
     expect(result).toBe('Pipeline "review" is paused. Use lattice_abort first.');
   });
+
+  it("reports unknown pipeline names", async () => {
+    const registry = registryOf(
+      pipeline("review", {
+        stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal" })],
+      }),
+    );
+    const state = makeState(registry);
+
+    const result = await createLatticeRunTool(deps(state)).execute({ pipeline: "ghost", goal: "" }, {
+      sessionID: "session-1",
+    } as never);
+
+    expect(result).toContain('Unknown pipeline "ghost"');
+    expect(result).toContain("Available: review");
+  });
 });
 
 describe("createLatticeStatusTool", () => {
-  it("appends a learnings count line when learnings are enabled", async () => {
-    const definition = pipeline("review", {
-      stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal" })],
-    });
-    const registry = registryOf(definition);
+  it("reports no active pipeline when idle", async () => {
+    const registry = registryOf(
+      pipeline("review", {
+        stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal" })],
+      }),
+    );
     const state = makeState(registry);
 
     const result = await createLatticeStatusTool(deps(state)).execute({}, undefined as never);
 
-    expect(result).toContain("No active pipeline.");
-    expect(result).toContain("Learnings: 0 entries");
-  });
-
-  it("shows captured learnings count and timestamp when entries exist", async () => {
-    const definition = pipeline("review", {
-      stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal" })],
-    });
-    const registry = registryOf(definition);
-    const state = makeState(registry);
-
-    const learningsPath = join(projectDir, ".lattice", "learnings.jsonl");
-    await mkdir(join(projectDir, ".lattice"), { recursive: true });
-    const entry = {
-      id: "11111111-1111-4111-8111-111111111111",
-      agent: "code-reviewer",
-      pattern: "Null check missing",
-      category: "auth",
-      severity: "blocking",
-      source: { stageId: "propose-comments", date: "2026-04-16T12:00:00.000Z" },
-      confidence: 0.9,
-      usageCount: 0,
-      feedbackScore: 0,
-      reinforcementCount: 0,
-      createdAt: "2026-04-16T12:00:00.000Z",
-      lastSeenAt: "2026-04-16T12:00:00.000Z",
-    };
-    await writeFile(learningsPath, `${JSON.stringify(entry)}\n`);
-
-    const result = await createLatticeStatusTool(deps(state)).execute({}, undefined as never);
-
-    expect(result).toContain("Learnings: 1 entries (last: 2026-04-16T12:00:00.000Z)");
-  });
-
-  it("omits the learnings line when capture is disabled", async () => {
-    const definition = pipeline("review", {
-      stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal" })],
-    });
-    const registry = registryOf(definition);
-    const state = makeState(registry);
-    state.engineConfig.latticeConfig = {
-      learnings: {
-        enabled: false,
-        storePath: ".lattice/learnings.jsonl",
-        agents: ["code-reviewer"],
-        maxPerAgent: 5,
-        confidenceThreshold: 0.5,
-      },
-    };
-
-    const result = await createLatticeStatusTool(deps(state)).execute({}, undefined as never);
-
-    expect(result).not.toContain("Learnings:");
+    expect(result).toBe("No active pipeline.");
   });
 
   it("formats stage markers for multiple statuses", async () => {
-    const definition = pipeline("review", {
-      stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal" })],
-    });
-    const registry = registryOf(definition);
+    const registry = registryOf(
+      pipeline("review", {
+        stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal" })],
+      }),
+    );
     const state = makeState(
       registry,
       runningInstance({
@@ -244,6 +206,19 @@ describe("createLatticeAbortTool", () => {
     });
 
     await expect(access(join(signalsDir, "plan.json"))).rejects.toThrow();
+  });
+
+  it("refuses to abort without confirm: true", async () => {
+    const definition = pipeline("implement", {
+      stages: [stage("plan", { agent: "planner", completion: "plan_created" })],
+    });
+    const registry = registryOf(definition);
+    const state = makeState(registry, runningInstance());
+
+    const result = await createLatticeAbortTool(deps(state)).execute({ confirm: false }, undefined as never);
+
+    expect(result).toContain("requires confirm: true");
+    expect(state.activeInstance?.status).toBe("running");
   });
 });
 
@@ -300,6 +275,34 @@ describe("createLatticeRetryTool", () => {
     });
   });
 
+  it("resumes a gate pause when no stage is rejected", async () => {
+    const definition = pipeline("review", {
+      stages: [stage("propose-comments", { agent: "pr-review-composer", completion: "tool_signal" })],
+    });
+    const registry = registryOf(definition);
+    const state = makeState(
+      registry,
+      runningInstance({
+        pipelineName: "review",
+        status: "paused",
+        currentStageIndex: 1,
+        stages: [
+          { id: "propose-comments", agent: "pr-review-composer", status: "completed", summary: "ready" },
+          { id: "post-comments", agent: "pr-commenter", status: "pending" },
+        ],
+      }),
+    );
+
+    const result = await createLatticeRetryTool(deps(state)).execute(
+      { confirm: true, response: "ship it" },
+      undefined as never,
+    );
+
+    expect(result).toContain('Resuming pipeline at stage "post-comments".');
+    expect(state.activeInstance?.status).toBe("running");
+    expect(state.activeInstance?.pendingResponse).toBe("ship it");
+  });
+
   it("refuses to retry without confirm: true", async () => {
     const definition = pipeline("implement", {
       stages: [stage("plan", { agent: "planner", completion: "plan_created" })],
@@ -318,21 +321,6 @@ describe("createLatticeRetryTool", () => {
 
     expect(result).toContain("requires confirm: true");
     expect(state.activeInstance?.status).toBe("paused");
-  });
-});
-
-describe("createLatticeAbortTool (confirm gate)", () => {
-  it("refuses to abort without confirm: true", async () => {
-    const definition = pipeline("implement", {
-      stages: [stage("plan", { agent: "planner", completion: "plan_created" })],
-    });
-    const registry = registryOf(definition);
-    const state = makeState(registry, runningInstance());
-
-    const result = await createLatticeAbortTool(deps(state)).execute({ confirm: false }, undefined as never);
-
-    expect(result).toContain("requires confirm: true");
-    expect(state.activeInstance?.status).toBe("running");
   });
 });
 

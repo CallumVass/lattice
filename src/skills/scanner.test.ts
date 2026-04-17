@@ -17,7 +17,7 @@ afterEach(async () => {
 
 describe("scanSkills", () => {
   it("returns empty for projects with no skills", async () => {
-    const skills = await scanSkills(projectDir, { includeGlobal: false, includeBundled: false });
+    const skills = await scanSkills(projectDir, { includeGlobal: false });
     expect(skills).toHaveLength(0);
   });
 
@@ -36,7 +36,7 @@ description: Test-driven development patterns
 Always write tests first.`,
     );
 
-    const skills = await scanSkills(projectDir, { includeGlobal: false, includeBundled: false });
+    const skills = await scanSkills(projectDir, { includeGlobal: false });
     expect(skills).toHaveLength(1);
     expect(skills[0]?.name).toBe("tdd");
     expect(skills[0]?.description).toBe("Test-driven development patterns");
@@ -48,7 +48,7 @@ Always write tests first.`,
     await mkdir(skillsDir, { recursive: true });
     await writeFile(join(skillsDir, "my-skill.md"), "# No frontmatter\nJust content.");
 
-    const skills = await scanSkills(projectDir, { includeGlobal: false, includeBundled: false });
+    const skills = await scanSkills(projectDir, { includeGlobal: false });
     expect(skills[0]?.name).toBe("my-skill");
     expect(skills[0]?.description).toBe("");
   });
@@ -62,7 +62,7 @@ Always write tests first.`,
     await writeFile(join(dir1, "tdd.md"), "---\nname: tdd\ndescription: opencode version\n---\n");
     await writeFile(join(dir2, "tdd.md"), "---\nname: tdd\ndescription: claude version\n---\n");
 
-    const skills = await scanSkills(projectDir, { includeGlobal: false, includeBundled: false });
+    const skills = await scanSkills(projectDir, { includeGlobal: false });
     const tdd = skills.filter((s) => s.name === "tdd");
     expect(tdd).toHaveLength(1);
     expect(tdd[0]?.description).toBe("opencode version");
@@ -76,7 +76,6 @@ Always write tests first.`,
     const skills = await scanSkills(projectDir, {
       extraPaths: [extraDir],
       includeGlobal: false,
-      includeBundled: false,
     });
     expect(skills.some((s) => s.name === "custom")).toBe(true);
   });
@@ -86,7 +85,7 @@ Always write tests first.`,
     await mkdir(skillsDir, { recursive: true });
     await writeFile(join(skillsDir, "vitest.md"), "---\nname: vitest\ndescription: Vitest patterns\n---\n");
 
-    const skills = await scanSkills(projectDir, { includeGlobal: false, includeBundled: false });
+    const skills = await scanSkills(projectDir, { includeGlobal: false });
     expect(skills.some((s) => s.name === "vitest")).toBe(true);
   });
 });
