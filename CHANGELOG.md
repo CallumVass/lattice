@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/CallumVass/lattice/compare/lattice-v1.2.0...lattice-v1.3.0) (2026-04-17)
+
+
+### Features
+
+* **learnings:** inject learnings into code-reviewer prompt ([a4725da](https://github.com/CallumVass/lattice/commit/a4725da2d05760f7e1247b3685a24d46a7d177ac))
+
 ## [1.2.0](https://github.com/CallumVass/lattice/compare/lattice-v1.1.0...lattice-v1.2.0) (2026-04-17)
 
 
