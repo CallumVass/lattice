@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.0](https://github.com/CallumVass/lattice/compare/lattice-v2.1.0...lattice-v2.2.0) (2026-04-18)
+
+
+### Features
+
+* **skills:** add skills.disabled flag to short-circuit injection ([edd7c26](https://github.com/CallumVass/lattice/commit/edd7c26095a6119a76988494cdfbb62fdc3bcb0a))
+
 ## [2.1.0](https://github.com/CallumVass/lattice/compare/lattice-v2.0.0...lattice-v2.1.0) (2026-04-18)
 
 
