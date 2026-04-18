@@ -28,6 +28,8 @@ export async function selectSkillsForStage(
   goal: string,
   deps: StageRunnerDeps,
 ): Promise<void> {
+  if (deps.latticeConfig.skills?.disabled) return;
+
   const stageDef = pipeline.stages.find((s) => s.id === stageId);
 
   try {

@@ -94,6 +94,28 @@ describe("selectSkillsForStage", () => {
     expect(selected.map((s) => s.name)).toContain("tdd");
   });
 
+  it("writes nothing when latticeConfig.skills.disabled is true", async () => {
+    const { registry, def } = makeRegistry();
+    const state = makeState({ skills: { disabled: true } }, registry);
+    const flat = flattenPipeline(def, registry);
+    const skillStore = new SkillStore();
+    const provider = scoringProvider(["tdd"]);
+
+    await selectSkillsForStage("session-1", flat, "plan", "planner", "build feature", {
+      sessions: NO_OP_SESSIONS,
+      engineConfig: state.engineConfig,
+      latticeConfig: { skills: { disabled: true } },
+      discoveredSkills: [{ name: "tdd", description: "", filePath: "/x/tdd.md", content: "" }],
+      scoringProvider: provider,
+      skillStore,
+      state,
+      log: SILENT_LOG,
+    });
+
+    expect(skillStore.get("session-1")).toEqual([]);
+    expect(provider.scoreSkills).not.toHaveBeenCalled();
+  });
+
   it("swallows scoring errors on dynamic stages and writes nothing", async () => {
     const def = pipeline("dynamic", {
       stages: [
