@@ -41,7 +41,14 @@ Lattice discovers content from OpenCode's conventional paths. Project paths over
 | Agents | `.opencode/agents/*.md` | `~/.config/opencode/agents/*.md` |
 | Skills | `.opencode/skills/<name>/SKILL.md` | `~/.config/opencode/skills/<name>/SKILL.md` |
 
-A pipeline file must have a default export built with the `pipeline` / `stage` / `ref` helpers (see [`docs/custom-pipelines.md`](docs/custom-pipelines.md)). A pipeline named `my-flow` registers `/my-flow <goal>` as a slash command automatically.
+A pipeline file has a default export — either the typed builder (`import { pipeline, stage } from "@callumvass/lattice"`) or a plain object. A pipeline named `my-flow` registers `/my-flow <goal>` as a slash command automatically. See [`docs/custom-pipelines.md`](docs/custom-pipelines.md).
+
+**If you use the typed builder**, install `@callumvass/lattice` where your pipelines live so they can resolve the import:
+
+```bash
+cd ~/.config/opencode && npm install @callumvass/lattice   # for global pipelines
+cd <your-project> && npm install --save-dev @callumvass/lattice   # for project pipelines
+```
 
 ## Framework Commands
 

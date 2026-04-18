@@ -20,6 +20,22 @@ Lattice ships no agents, skills, or pipelines — you author them. Lattice disco
 - **Agents**: OpenCode-native, `~/.config/opencode/agents/*.md` or `.opencode/agents/*.md`
 - **Skills**: OpenCode-native, `~/.config/opencode/skills/<name>/SKILL.md` or `.opencode/skills/<name>/SKILL.md`
 
+## Pipeline imports
+
+Pipeline files that use the typed builder (`import { pipeline, stage } from "@callumvass/lattice"`) need lattice resolvable from the pipeline file's location. Install it once where your pipelines live:
+
+```bash
+# For ~/.config/opencode/lattice-pipelines/*.ts:
+cd ~/.config/opencode
+npm install @callumvass/lattice
+
+# For <project>/.opencode/lattice-pipelines/*.ts:
+cd <project>
+npm install --save-dev @callumvass/lattice
+```
+
+Without that install, you'll hit `Cannot find module '@callumvass/lattice'` at both editor and runtime. Alternatively, use the plain-object form (no import, no install — see [`custom-pipelines.md`](custom-pipelines.md#plain-object-api)).
+
 See [`custom-pipelines.md`](custom-pipelines.md) for authoring pipelines, [`skills.md`](skills.md) for skill discovery, and the OpenCode docs for agents/skills format.
 
 ## Build From Source
