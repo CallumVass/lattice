@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.0.0](https://github.com/CallumVass/lattice/compare/lattice-v1.6.0...lattice-v2.0.0) (2026-04-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* `tool_signal` stages must declare a non-empty `signals` array. The builder's StageOptions is a discriminated union so TypeScript enforces this at compile time; `pipelineDefinitionSchema` enforces it at runtime for JSON/JS pipelines. `idle` stages must not set `signals`.
+* `plan_created` and `plan_complete` removed from the `CompletionMethod` enum. Pipelines using them must migrate to `tool_signal` and carry any file-path convention in the stage `prompt`.
+* Lattice no longer ships built-in pipelines (/architecture, /implement, /review, /review-lite, /investigate, /create-jira-issues), bundled agents, bundled skills, or the learnings capture/injection/insights system. The /lattice-insights and /lattice-learning-feedback commands are removed, the `kill` arg on /lattice-retry is removed, and the `learnings` config key is no longer recognised. Users upgrading from v1 must supply their own pipeline/agent/skill files in the paths above.
+
+### Features
+
+* drop plan_created/plan_complete completion modes ([c120361](https://github.com/CallumVass/lattice/commit/c1203619a39d17a2c3814ae3fdc697bf47cf1884))
+* per-stage signal declaration + custom pause prompts ([8ceff32](https://github.com/CallumVass/lattice/commit/8ceff3239e20a01094ddbef6905b38e0863f9f74))
+* v2 framework-only release ([b86f01f](https://github.com/CallumVass/lattice/commit/b86f01f23b6378e7dbca26a5226a5af8d5031e0a))
+
 ## [1.6.0](https://github.com/CallumVass/lattice/compare/lattice-v1.5.0...lattice-v1.6.0) (2026-04-17)
 
 
