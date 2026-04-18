@@ -7,7 +7,7 @@ Pipeline files live in one of two places:
 
 Each file exports a pipeline definition as its default export. The filename doesn't need to match the pipeline's `name`, but it usually does.
 
-## Builder API
+## Builder API (typed)
 
 ```ts
 import { pipeline, ref, stage } from "@callumvass/lattice";
@@ -27,7 +27,11 @@ export default pipeline("quick-fix", {
 
 `ref("<pipeline-name>")` inlines another pipeline's stages at runtime. The referenced pipeline must also be discoverable in one of the pipeline paths.
 
-## Plain Object API
+The builder requires `@callumvass/lattice` installed where the pipeline file can resolve it (`~/.config/opencode/` for global pipelines, your project root for `.opencode/` pipelines). See [`install.md`](install.md#pipeline-imports) for the one-time setup. If you prefer zero-install authoring, use the plain object form below.
+
+## Plain Object API (no install)
+
+Skips the typed builder — no imports, no `npm install`. Lattice validates the shape at load time via its schema.
 
 ```ts
 export default {
@@ -45,6 +49,8 @@ export default {
   ],
 };
 ```
+
+Tradeoff: no autocomplete, no compile-time check that `signals` matches the completion method, and no typed refactoring. The runtime schema still rejects invalid shapes.
 
 ## Stage Fields
 
