@@ -22,19 +22,42 @@ Lattice ships no agents, skills, or pipelines — you author them. Lattice disco
 
 ## Pipeline imports
 
-Pipeline files that use the typed builder (`import { pipeline, stage } from "@callumvass/lattice"`) need lattice resolvable from the pipeline file's location. Install it once where your pipelines live:
+Pipeline files that use the typed builder (`import { pipeline, stage } from "@callumvass/lattice"`) need two things wired up where the pipeline files live:
 
-```bash
-# For ~/.config/opencode/lattice-pipelines/*.ts:
-cd ~/.config/opencode
-npm install @callumvass/lattice
+1. **The package installed** so Node (and your editor) can resolve the import:
 
-# For <project>/.opencode/lattice-pipelines/*.ts:
-cd <project>
-npm install --save-dev @callumvass/lattice
-```
+   ```bash
+   # For ~/.config/opencode/lattice-pipelines/*.ts:
+   cd ~/.config/opencode
+   npm install @callumvass/lattice
 
-Without that install, you'll hit `Cannot find module '@callumvass/lattice'` at both editor and runtime. Alternatively, use the plain-object form (no import, no install — see [`custom-pipelines.md`](custom-pipelines.md#plain-object-api)).
+   # For <project>/.opencode/lattice-pipelines/*.ts:
+   cd <project>
+   npm install --save-dev @callumvass/lattice
+   ```
+
+2. **A `tsconfig.json`** covering the pipeline files so the editor's TypeScript server uses proper module resolution. A minimal one at the pipeline root works:
+
+   ```json
+   {
+     "compilerOptions": {
+       "target": "ES2022",
+       "module": "ESNext",
+       "moduleResolution": "bundler",
+       "strict": true,
+       "esModuleInterop": true,
+       "skipLibCheck": true,
+       "noEmit": true
+     },
+     "include": ["lattice-pipelines/**/*.ts"]
+   }
+   ```
+
+   Drop it next to the `lattice-pipelines/` folder (i.e. `~/.config/opencode/tsconfig.json` for global pipelines, or rely on your project's existing tsconfig for `.opencode/lattice-pipelines/`).
+
+Without the install you'll hit `Cannot find module '@callumvass/lattice'` at both editor and runtime. Without the tsconfig you'll hit the same editor error even when the package is present — the TS server can't figure out how to resolve without a project config. Both need to be in place.
+
+Alternatively, use the plain-object form (no import, no install, no tsconfig — see [`custom-pipelines.md`](custom-pipelines.md#plain-object-api-no-install)).
 
 See [`custom-pipelines.md`](custom-pipelines.md) for authoring pipelines, [`skills.md`](skills.md) for skill discovery, and the OpenCode docs for agents/skills format.
 
