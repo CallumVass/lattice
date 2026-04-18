@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/CallumVass/lattice/compare/lattice-v2.0.0...lattice-v2.1.0) (2026-04-18)
+
+
+### Features
+
+* capture per-stage opencode telemetry ([2e482ef](https://github.com/CallumVass/lattice/commit/2e482efa4cb9100558ca9c031dd33d42164b9a63))
+
 ## [2.0.0](https://github.com/CallumVass/lattice/compare/lattice-v1.6.0...lattice-v2.0.0) (2026-04-18)
 
 
