@@ -4,6 +4,20 @@ const stageStatusSchema = z.enum(["pending", "running", "completed", "rejected",
 
 export type StageStatus = z.infer<typeof stageStatusSchema>;
 
+const stageTelemetrySchema = z.object({
+  model: z.string().optional(),
+  provider: z.string().optional(),
+  tokensIn: z.number(),
+  tokensOut: z.number(),
+  tokensReasoning: z.number(),
+  tokensCacheRead: z.number(),
+  tokensCacheWrite: z.number(),
+  costUSD: z.number(),
+  messageCount: z.number(),
+});
+
+export type StageTelemetry = z.infer<typeof stageTelemetrySchema>;
+
 const stageInstanceSchema = z.object({
   id: z.string(),
   agent: z.string(),
@@ -13,6 +27,7 @@ const stageInstanceSchema = z.object({
   completedAt: z.string().datetime().optional(),
   summary: z.string().optional(),
   verdict: z.enum(["approve", "reject", "blocked"]).optional(),
+  telemetry: stageTelemetrySchema.optional(),
 });
 
 export type StageInstance = z.infer<typeof stageInstanceSchema>;
