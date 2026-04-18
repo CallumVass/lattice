@@ -46,6 +46,11 @@ Project config overrides global config.
 - Stage skill settings per pipeline
 - Extra skill directories (beyond the standard discovery paths)
 - Global max number of injected skills
+- Disable all skill injection (`skills.disabled: true`)
+
+## Disabling skill injection
+
+Set `"skills": { "disabled": true }` at the top level to short-circuit skill injection for every stage. Pipeline files keep their inline `skills.pinned` lists; they are simply not consulted while the flag is on. Useful for A/B ablations (skills on vs skills off) without duplicating pipelines.
 
 ## Notes
 

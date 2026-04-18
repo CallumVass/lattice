@@ -29,6 +29,7 @@ const latticeConfigSchema = z.object({
     .object({
       paths: z.array(z.string()).optional(),
       max: z.number().int().positive().optional(),
+      disabled: z.boolean().optional(),
     })
     .optional(),
 });
