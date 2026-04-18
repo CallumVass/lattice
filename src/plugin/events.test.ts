@@ -13,7 +13,7 @@ import {
 } from "../engine/index.js";
 import type { LatticeConfig, PipelineDefinition } from "../schema/index.js";
 import type { ScoringProvider } from "../skills/index.js";
-import { createEventHandler } from "./events.js";
+import { accumulateTelemetry, createEventHandler } from "./events.js";
 import type { PluginState } from "./state.js";
 import { SkillStore } from "./system-transform.js";
 
@@ -71,6 +71,46 @@ function buildHandler(state: PluginState, registry: PipelineRegistry) {
 
 async function fireIdle(handler: ReturnType<typeof createEventHandler>) {
   await handler({ event: { type: "session.idle", properties: { sessionID: "session-1" } } } as never);
+}
+
+interface AssistantInfoOverrides {
+  role?: string;
+  completed?: number | undefined;
+  input?: number;
+  output?: number;
+  reasoning?: number;
+  cacheRead?: number;
+  cacheWrite?: number;
+  cost?: number;
+  modelID?: string;
+  providerID?: string;
+}
+
+async function fireAssistantMessage(
+  handler: ReturnType<typeof createEventHandler>,
+  overrides: AssistantInfoOverrides = {},
+) {
+  const time = "completed" in overrides ? { completed: overrides.completed } : { completed: 1 };
+  await handler({
+    event: {
+      type: "message.updated",
+      properties: {
+        info: {
+          role: overrides.role ?? "assistant",
+          time,
+          modelID: overrides.modelID ?? "anthropic/claude-opus-4",
+          providerID: overrides.providerID ?? "anthropic",
+          cost: overrides.cost ?? 0.01,
+          tokens: {
+            input: overrides.input ?? 100,
+            output: overrides.output ?? 50,
+            reasoning: overrides.reasoning ?? 0,
+            cache: { read: overrides.cacheRead ?? 0, write: overrides.cacheWrite ?? 0 },
+          },
+        },
+      },
+    },
+  } as never);
 }
 
 async function writeSignal(stageId: string, status: string, reason?: string) {
@@ -183,5 +223,137 @@ describe("session.idle pipeline progression", () => {
 
     await expect(fireIdle(handler)).resolves.toBeUndefined();
     expect(state.activeInstance).toBeUndefined();
+  });
+});
+
+describe("telemetry accumulation", () => {
+  it("accumulates token and cost fields across messages", () => {
+    const first = accumulateTelemetry(undefined, {
+      role: "assistant",
+      modelID: "anthropic/claude-opus-4",
+      providerID: "anthropic",
+      cost: 0.02,
+      time: { completed: 1 },
+      tokens: { input: 100, output: 50, reasoning: 10, cache: { read: 5, write: 2 } },
+    });
+    expect(first).toEqual({
+      model: "anthropic/claude-opus-4",
+      provider: "anthropic",
+      tokensIn: 100,
+      tokensOut: 50,
+      tokensReasoning: 10,
+      tokensCacheRead: 5,
+      tokensCacheWrite: 2,
+      costUSD: 0.02,
+      messageCount: 1,
+    });
+
+    const second = accumulateTelemetry(first, {
+      role: "assistant",
+      cost: 0.03,
+      tokens: { input: 200, output: 80, cache: { read: 3, write: 1 } },
+    });
+    expect(second.tokensIn).toBe(300);
+    expect(second.tokensOut).toBe(130);
+    expect(second.tokensCacheRead).toBe(8);
+    expect(second.tokensCacheWrite).toBe(3);
+    expect(second.costUSD).toBeCloseTo(0.05);
+    expect(second.messageCount).toBe(2);
+    expect(second.model).toBe("anthropic/claude-opus-4");
+  });
+
+  it("treats missing token/cost fields as zero", () => {
+    const t = accumulateTelemetry(undefined, { role: "assistant" });
+    expect(t).toEqual({
+      tokensIn: 0,
+      tokensOut: 0,
+      tokensReasoning: 0,
+      tokensCacheRead: 0,
+      tokensCacheWrite: 0,
+      costUSD: 0,
+      messageCount: 1,
+    });
+  });
+});
+
+describe("message.updated event handling", () => {
+  const oneStage = pipeline("one-stage", {
+    stages: [stage("only", { agent: "planner", completion: "tool_signal", signals: ["complete"], fork: false })],
+  });
+
+  async function primeRunningStage(): Promise<{
+    state: PluginState;
+    handler: ReturnType<typeof createEventHandler>;
+  }> {
+    const registry = registryOf(oneStage);
+    const state = makeState({}, registry);
+    const handler = buildHandler(state, registry);
+
+    const flat = flattenPipeline(oneStage, registry);
+    const { instance } = await startPipeline(flat, "ship it", state.engineConfig);
+    state.activeInstance = instance;
+
+    await fireIdle(handler); // transitions the stage to "running"
+    return { state, handler };
+  }
+
+  it("attributes assistant-completed messages to the currently-running stage", async () => {
+    const { state, handler } = await primeRunningStage();
+
+    await fireAssistantMessage(handler, { input: 100, output: 50, cost: 0.02 });
+
+    const stage = state.activeInstance?.stages[0];
+    expect(stage?.telemetry).toBeDefined();
+    expect(stage?.telemetry?.tokensIn).toBe(100);
+    expect(stage?.telemetry?.tokensOut).toBe(50);
+    expect(stage?.telemetry?.costUSD).toBeCloseTo(0.02);
+    expect(stage?.telemetry?.messageCount).toBe(1);
+  });
+
+  it("accumulates multiple messages across the stage lifetime", async () => {
+    const { state, handler } = await primeRunningStage();
+
+    await fireAssistantMessage(handler, { input: 100, output: 50, cost: 0.02 });
+    await fireAssistantMessage(handler, { input: 200, output: 80, cost: 0.03 });
+
+    const stage = state.activeInstance?.stages[0];
+    expect(stage?.telemetry?.tokensIn).toBe(300);
+    expect(stage?.telemetry?.tokensOut).toBe(130);
+    expect(stage?.telemetry?.costUSD).toBeCloseTo(0.05);
+    expect(stage?.telemetry?.messageCount).toBe(2);
+  });
+
+  it("ignores partial frames where time.completed is unset", async () => {
+    const { state, handler } = await primeRunningStage();
+
+    await fireAssistantMessage(handler, { completed: undefined, input: 999, output: 999 });
+
+    expect(state.activeInstance?.stages[0]?.telemetry).toBeUndefined();
+  });
+
+  it("ignores non-assistant roles (user messages)", async () => {
+    const { state, handler } = await primeRunningStage();
+
+    await fireAssistantMessage(handler, { role: "user", input: 999 });
+
+    expect(state.activeInstance?.stages[0]?.telemetry).toBeUndefined();
+  });
+
+  it("drops telemetry when no pipeline is active", async () => {
+    const registry = registryOf(oneStage);
+    const state = makeState({}, registry);
+    const handler = buildHandler(state, registry);
+
+    await expect(fireAssistantMessage(handler)).resolves.toBeUndefined();
+    expect(state.activeInstance).toBeUndefined();
+  });
+
+  it("drops telemetry when the current stage is not running (e.g. paused)", async () => {
+    const { state, handler } = await primeRunningStage();
+    if (state.activeInstance) state.activeInstance.status = "paused";
+
+    await fireAssistantMessage(handler);
+
+    expect(state.activeInstance?.stages[0]?.telemetry).toBeUndefined();
   });
 });

@@ -8,9 +8,48 @@ import {
   type SessionProvider,
   saveInstance,
 } from "../engine/index.js";
+import type { StageTelemetry } from "../schema/index.js";
 import type { createLogger } from "./logger.js";
 import { completionMessage, customGateMessage, failureMessage, gateMessage, pauseMessage } from "./notifications.js";
 import { executeStageAction, type StageRunnerDeps } from "./stage-runner.js";
+
+interface AssistantMessageInfo {
+  role?: string;
+  modelID?: string;
+  providerID?: string;
+  cost?: number;
+  time?: { completed?: number };
+  tokens?: {
+    input?: number;
+    output?: number;
+    reasoning?: number;
+    cache?: { read?: number; write?: number };
+  };
+}
+
+export function accumulateTelemetry(existing: StageTelemetry | undefined, info: AssistantMessageInfo): StageTelemetry {
+  const base: StageTelemetry = existing ?? {
+    tokensIn: 0,
+    tokensOut: 0,
+    tokensReasoning: 0,
+    tokensCacheRead: 0,
+    tokensCacheWrite: 0,
+    costUSD: 0,
+    messageCount: 0,
+  };
+  return {
+    ...base,
+    model: info.modelID ?? base.model,
+    provider: info.providerID ?? base.provider,
+    tokensIn: base.tokensIn + (info.tokens?.input ?? 0),
+    tokensOut: base.tokensOut + (info.tokens?.output ?? 0),
+    tokensReasoning: base.tokensReasoning + (info.tokens?.reasoning ?? 0),
+    tokensCacheRead: base.tokensCacheRead + (info.tokens?.cache?.read ?? 0),
+    tokensCacheWrite: base.tokensCacheWrite + (info.tokens?.cache?.write ?? 0),
+    costUSD: base.costUSD + (info.cost ?? 0),
+    messageCount: base.messageCount + 1,
+  };
+}
 
 type Logger = ReturnType<typeof createLogger>;
 
@@ -32,6 +71,23 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
   let processing = false;
 
   return async ({ event }) => {
+    if (event.type === "message.updated") {
+      const msg = event as unknown as { properties?: { info?: AssistantMessageInfo } };
+      const info = msg.properties?.info;
+      // Only authoritative assistant turns carry finalised tokens/cost; partial frames have zeros.
+      if (!info || info.role !== "assistant" || !info.time?.completed) return;
+
+      const instance = deps.state.activeInstance;
+      if (!instance || instance.status !== "running") return;
+      const stage = instance.stages[instance.currentStageIndex];
+      if (!stage || stage.status !== "running") return;
+
+      stage.telemetry = accumulateTelemetry(stage.telemetry, info);
+      instance.updatedAt = new Date().toISOString();
+      await saveInstance(deps.state.engineConfig.projectDir, instance);
+      return;
+    }
+
     if (event.type === "session.error") {
       const ev = event as unknown as { properties?: { sessionID?: string; error?: { data?: { message?: string } } } };
       const msg = ev.properties?.error?.data?.message;
