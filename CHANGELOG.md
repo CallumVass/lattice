@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.3.0](https://github.com/CallumVass/lattice/compare/lattice-v2.2.0...lattice-v2.3.0) (2026-04-20)
+
+
+### Features
+
+* **stage:** add post-hook with agent-feedback retry loop ([84ca984](https://github.com/CallumVass/lattice/commit/84ca98456e800c45374e5b9e9fec3e7fc6cddb37))
+
 ## [2.2.0](https://github.com/CallumVass/lattice/compare/lattice-v2.1.0...lattice-v2.2.0) (2026-04-18)
 
 
