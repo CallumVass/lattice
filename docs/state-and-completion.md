@@ -52,3 +52,29 @@ When a stage signals `reject` or `blocked`, the pipeline becomes `paused`.
 `/lattice-retry` resets the rejected stage and every stage after it. If there is an earlier `implementor`-typed stage, retry jumps back there first — so the implementor can fix issues before review reruns.
 
 If no stage is rejected (the pipeline is merely at a `pauseAfter` gate), `/lattice-retry` just unpauses and the engine moves on to the next stage.
+
+## Post-Hooks
+
+A stage can declare a `postHook` to run shell commands after it signals completion but before the pipeline advances. Use this for lint, format, and test checks that should gate handoff to the next stage.
+
+```ts
+stage("implement", {
+  agent: "implementor",
+  completion: "tool_signal",
+  signals: ["complete"],
+  postHook: {
+    commands: ["npm run lint", "npm run test"],
+    maxRetries: 2,
+  },
+});
+```
+
+Commands run sequentially in the project directory; the first non-zero exit stops the chain and its combined stdout/stderr is captured.
+
+Behaviour on failure:
+
+- The failing command's output is injected back into the same stage's session as a follow-up prompt, asking the agent to fix it before handing off again.
+- The signal file is cleared so the stage re-enters the normal completion loop — the agent works, re-signals, and the hook runs again.
+- After `maxRetries` follow-ups still fail, the stage is marked `rejected` with the hook output as its summary and the pipeline pauses. `/lattice-retry` resumes with the usual rewind-to-implementor semantics.
+
+`maxRetries` defaults to `1`. Set to `0` to fail fast on the first hook failure.

@@ -56,6 +56,28 @@ describe("stage", () => {
 
     expect(s.prompt).toBe("Plan the implementation of {{goal}}");
   });
+
+  it("creates a stage with a post-hook and default retries", () => {
+    const s = stage("implement", {
+      agent: "implementor",
+      completion: "tool_signal",
+      signals: ["complete"],
+      postHook: { commands: ["npm run check"] },
+    });
+
+    expect(s.postHook).toEqual({ commands: ["npm run check"], maxRetries: 1 });
+  });
+
+  it("honours an explicit post-hook maxRetries", () => {
+    const s = stage("implement", {
+      agent: "implementor",
+      completion: "tool_signal",
+      signals: ["complete"],
+      postHook: { commands: ["lint", "test"], maxRetries: 3 },
+    });
+
+    expect(s.postHook).toEqual({ commands: ["lint", "test"], maxRetries: 3 });
+  });
 });
 
 describe("ref", () => {

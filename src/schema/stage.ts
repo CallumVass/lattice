@@ -20,6 +20,13 @@ export const skillsConfigSchema = z.object({
 
 export type SkillsConfig = z.infer<typeof skillsConfigSchema>;
 
+export const postHookSchema = z.object({
+  commands: z.array(z.string()).min(1),
+  maxRetries: z.number().int().nonnegative().default(1),
+});
+
+export type PostHook = z.infer<typeof postHookSchema>;
+
 export const stageDefinitionSchema = z
   .object({
     id: z.string(),
@@ -36,6 +43,13 @@ export const stageDefinitionSchema = z
      * `{{summary}}` / `{{reason}}` replaced by the stage's completion summary.
      */
     pauseAfter: pauseAfterSchema.default(false),
+    /**
+     * Shell commands to run after the stage signals completion but before
+     * advancing. On non-zero exit, the failed command's output is fed back to
+     * the same agent for up to `maxRetries` follow-up turns; if still failing
+     * after that, the pipeline pauses for user intervention.
+     */
+    postHook: postHookSchema.optional(),
   })
   .refine((s) => s.completion !== "tool_signal" || (s.signals !== undefined && s.signals.length > 0), {
     message: "`signals` must be a non-empty array when `completion` is 'tool_signal'",

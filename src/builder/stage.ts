@@ -1,4 +1,11 @@
-import type { PauseAfter, PipelineRef, SignalVerdict, SkillsConfig, StageDefinition } from "../schema/index.js";
+import type {
+  PauseAfter,
+  PipelineRef,
+  PostHook,
+  SignalVerdict,
+  SkillsConfig,
+  StageDefinition,
+} from "../schema/index.js";
 
 interface BaseStageOptions {
   agent: string;
@@ -6,6 +13,7 @@ interface BaseStageOptions {
   skills?: Partial<SkillsConfig>;
   prompt?: string;
   pauseAfter?: PauseAfter;
+  postHook?: { commands: string[]; maxRetries?: number };
 }
 
 export interface IdleStageOptions extends BaseStageOptions {
@@ -21,6 +29,10 @@ export interface SignalStageOptions extends BaseStageOptions {
 export type StageOptions = IdleStageOptions | SignalStageOptions;
 
 export function stage(id: string, options: StageOptions): StageDefinition {
+  const postHook: PostHook | undefined = options.postHook
+    ? { commands: options.postHook.commands, maxRetries: options.postHook.maxRetries ?? 1 }
+    : undefined;
+
   return {
     id,
     type: "stage",
@@ -31,6 +43,7 @@ export function stage(id: string, options: StageOptions): StageDefinition {
     ...(options.completion === "tool_signal" && { signals: options.signals }),
     ...(options.skills && { skills: { dynamic: false, pinned: [], max: 4, ...options.skills } }),
     ...(options.prompt && { prompt: options.prompt }),
+    ...(postHook && { postHook }),
   };
 }
 

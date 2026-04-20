@@ -14,6 +14,7 @@ import {
 import type { LatticeConfig, PipelineDefinition } from "../schema/index.js";
 import type { ScoringProvider } from "../skills/index.js";
 import { accumulateTelemetry, createEventHandler } from "./events.js";
+import type { PostHookRunner } from "./post-hook.js";
 import type { PluginState } from "./state.js";
 import { SkillStore } from "./system-transform.js";
 
@@ -43,7 +44,12 @@ function registryOf(...defs: PipelineDefinition[]): PipelineRegistry {
   return registry;
 }
 
-function buildHandler(state: PluginState, registry: PipelineRegistry) {
+interface HandlerOverrides {
+  sessions?: SessionProvider;
+  postHookRunner?: PostHookRunner;
+}
+
+function buildHandler(state: PluginState, registry: PipelineRegistry, overrides: HandlerOverrides = {}) {
   const flattened = new Map<string, FlattenedPipeline>();
   const getFlattened = (name: string): FlattenedPipeline => {
     let flat = flattened.get(name);
@@ -59,13 +65,14 @@ function buildHandler(state: PluginState, registry: PipelineRegistry) {
   return createEventHandler({
     state,
     getFlattened,
-    sessions: NO_OP_SESSIONS,
+    sessions: overrides.sessions ?? NO_OP_SESSIONS,
     engineConfig: state.engineConfig,
     latticeConfig: state.engineConfig.latticeConfig,
     discoveredSkills: [],
     scoringProvider: NO_SKILLS_PROVIDER,
     skillStore: new SkillStore(),
     log: SILENT_LOG,
+    ...(overrides.postHookRunner && { postHookRunner: overrides.postHookRunner }),
   });
 }
 
@@ -355,5 +362,120 @@ describe("message.updated event handling", () => {
     await fireAssistantMessage(handler);
 
     expect(state.activeInstance?.stages[0]?.telemetry).toBeUndefined();
+  });
+});
+
+describe("post-hook integration", () => {
+  const oneStageWithHook = pipeline("hooked", {
+    stages: [
+      stage("only", {
+        agent: "planner",
+        completion: "tool_signal",
+        signals: ["complete"],
+        postHook: { commands: ["npm run check"], maxRetries: 2 },
+      }),
+    ],
+  });
+
+  it("advances normally when the post-hook passes", async () => {
+    const registry = registryOf(oneStageWithHook);
+    const state = makeState({}, registry);
+    const runner: PostHookRunner = vi.fn(async () => ({ ok: true }) as const);
+    const handler = buildHandler(state, registry, { postHookRunner: runner });
+
+    const flat = flattenPipeline(oneStageWithHook, registry);
+    const { instance } = await startPipeline(flat, "ship it", state.engineConfig);
+    state.activeInstance = instance;
+
+    await fireIdle(handler); // pending → running
+
+    await writeSignal("only", "complete", "done");
+    await fireIdle(handler);
+    await clearSignal("only");
+
+    expect(runner).toHaveBeenCalledOnce();
+    expect(state.activeInstance).toBeUndefined();
+  });
+
+  it("injects feedback and stays running when the hook fails within retry budget", async () => {
+    const registry = registryOf(oneStageWithHook);
+    const state = makeState({}, registry);
+    const injectPrompt = vi.fn<SessionProvider["injectPrompt"]>(async () => {});
+    const sessions: SessionProvider = {
+      injectPrompt,
+      injectSubtask: vi.fn(async () => {}),
+      getLastAssistantMessage: vi.fn(async () => ""),
+    };
+    const runner: PostHookRunner = vi.fn(async () => ({
+      ok: false,
+      command: "npm run check",
+      exitCode: 1,
+      output: "typecheck error in foo.ts",
+    }));
+
+    const handler = buildHandler(state, registry, { sessions, postHookRunner: runner });
+
+    const flat = flattenPipeline(oneStageWithHook, registry);
+    const { instance } = await startPipeline(flat, "ship it", state.engineConfig);
+    state.activeInstance = instance;
+
+    await fireIdle(handler); // pending → running
+    injectPrompt.mockClear();
+
+    await writeSignal("only", "complete", "done");
+    await fireIdle(handler);
+
+    expect(runner).toHaveBeenCalledOnce();
+    expect(state.activeInstance?.stages[0]?.status).toBe("running");
+    expect(state.activeInstance?.stages[0]?.postHookRetriesUsed).toBe(1);
+    expect(state.activeInstance?.status).toBe("running");
+
+    expect(injectPrompt).toHaveBeenCalledOnce();
+    const call = injectPrompt.mock.calls[0];
+    expect(call?.[1]).toBe("planner");
+    expect(call?.[2]).toContain("npm run check");
+    expect(call?.[2]).toContain("typecheck error in foo.ts");
+
+    // Signal file must be cleared so the next idle doesn't immediately re-trigger completion.
+    await expect(
+      writeSignal("only", "complete", "done"), // should succeed fresh — prior one was removed
+    ).resolves.toBeUndefined();
+    await clearSignal("only");
+  });
+
+  it("pauses the pipeline with a rejected stage when retries are exhausted", async () => {
+    const registry = registryOf(oneStageWithHook);
+    const state = makeState({}, registry);
+    const injectPrompt = vi.fn(async () => {});
+    const sessions: SessionProvider = {
+      injectPrompt,
+      injectSubtask: vi.fn(async () => {}),
+      getLastAssistantMessage: vi.fn(async () => ""),
+    };
+    const runner: PostHookRunner = vi.fn(async () => ({
+      ok: false,
+      command: "npm run check",
+      exitCode: 1,
+      output: "still broken",
+    }));
+
+    const handler = buildHandler(state, registry, { sessions, postHookRunner: runner });
+
+    const flat = flattenPipeline(oneStageWithHook, registry);
+    const { instance } = await startPipeline(flat, "ship it", state.engineConfig);
+    state.activeInstance = instance;
+
+    await fireIdle(handler); // pending → running
+
+    // Three completion attempts: first two consume retries, third exhausts.
+    for (let i = 0; i < 3; i++) {
+      await writeSignal("only", "complete", "done");
+      await fireIdle(handler);
+    }
+
+    expect(runner).toHaveBeenCalledTimes(3);
+    expect(state.activeInstance?.stages[0]?.status).toBe("rejected");
+    expect(state.activeInstance?.status).toBe("paused");
+    expect(state.activeInstance?.stages[0]?.summary).toContain("still broken");
   });
 });

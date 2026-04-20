@@ -60,6 +60,7 @@ Tradeoff: no autocomplete, no compile-time check that `signals` matches the comp
 - `signals`: **required for `tool_signal` stages**. Declares the verdicts this stage may emit. Any of `"complete" | "approve" | "reject" | "blocked"`. Tailors the engine-injected signalling instructions the agent sees, and the engine warns if the agent signals outside the declared set.
 - `fork`: reuse the current conversation context when `true`; start a cold subtask when `false`
 - `pauseAfter`: `boolean | { prompt: string }` — pause the pipeline after this stage completes. `true` renders a generic pause message; `{ prompt }` renders the given body verbatim (with `{{summary}}` / `{{reason}}` replaced by the stage's completion summary).
+- `postHook`: `{ commands: string[]; maxRetries?: number }` — shell commands to run after the stage signals completion but before advancing. On failure the agent is asked to fix it; see [`state-and-completion.md`](state-and-completion.md#post-hooks).
 - `skills`: optional pinned or dynamic skill selection (see [`skills.md`](skills.md))
 - `prompt`: extra instructions appended to the stage prompt. Use this to tell the agent about pipeline-specific wiring: what output format to produce, where to write files, etc.
 

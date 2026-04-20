@@ -42,6 +42,18 @@ export function pauseMessage(pipelineName: string, reason: string): string {
   });
 }
 
+export function postHookPauseMessage(pipelineName: string, stageId: string, command: string, output: string): string {
+  return buildUserNotification({
+    title: `Pipeline "${pipelineName}" paused — post-hook failed`,
+    summary: `Stage "${stageId}" signalled completion but its post-hook command \`${command}\` kept failing after the agent's retry attempts:\n\n\`\`\`\n${output}\n\`\`\``,
+    nextSteps: [
+      "**Fix it manually**, then run `/lattice-retry` to resume.",
+      "**Retry as-is** with `/lattice-retry` — the stage re-runs and its post-hook fires again.",
+      "**Cancel** with `/lattice-abort`.",
+    ],
+  });
+}
+
 export function gateMessage(pipelineName: string, reason: string, nextStageId: string | undefined): string {
   return buildUserNotification({
     title: `Pipeline "${pipelineName}" paused — approval required`,

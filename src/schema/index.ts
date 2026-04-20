@@ -5,6 +5,7 @@ export type {
   CompletionMethod,
   PauseAfter,
   PipelineRef,
+  PostHook,
   SignalVerdict,
   SkillsConfig,
   StageDefinition,
