@@ -181,6 +181,7 @@ export function createLatticeRetryTool(deps: ToolDeps): ToolDefinition {
           s.completedAt = undefined;
           s.summary = undefined;
           s.verdict = undefined;
+          s.postHookRetriesUsed = undefined;
         }
       }
 

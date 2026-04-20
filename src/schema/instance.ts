@@ -28,6 +28,8 @@ const stageInstanceSchema = z.object({
   summary: z.string().optional(),
   verdict: z.enum(["approve", "reject", "blocked"]).optional(),
   telemetry: stageTelemetrySchema.optional(),
+  /** How many post-hook retry follow-ups have been issued for this stage. */
+  postHookRetriesUsed: z.number().int().nonnegative().optional(),
 });
 
 export type StageInstance = z.infer<typeof stageInstanceSchema>;

@@ -1,3 +1,5 @@
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
 import type { Plugin } from "@opencode-ai/plugin";
 import {
   advancePipeline,
@@ -8,9 +10,17 @@ import {
   type SessionProvider,
   saveInstance,
 } from "../engine/index.js";
-import type { StageTelemetry } from "../schema/index.js";
+import type { PipelineInstance, StageTelemetry } from "../schema/index.js";
 import type { createLogger } from "./logger.js";
-import { completionMessage, customGateMessage, failureMessage, gateMessage, pauseMessage } from "./notifications.js";
+import {
+  completionMessage,
+  customGateMessage,
+  failureMessage,
+  gateMessage,
+  pauseMessage,
+  postHookPauseMessage,
+} from "./notifications.js";
+import { type PostHookRunner, runPostHook } from "./post-hook.js";
 import { executeStageAction, type StageRunnerDeps } from "./stage-runner.js";
 
 interface AssistantMessageInfo {
@@ -60,6 +70,82 @@ interface EventHandlerDeps extends StageRunnerDeps {
   getFlattened: (name: string) => FlattenedPipeline;
   sessions: SessionProvider;
   log: Logger;
+  /** Overridable for tests. Defaults to the real shell runner. */
+  postHookRunner?: PostHookRunner;
+}
+
+function postHookFeedbackPrompt(command: string, output: string): string {
+  return [
+    `Post-hook command \`${command}\` failed after this stage signalled completion. Its output:`,
+    "",
+    "```",
+    output,
+    "```",
+    "",
+    "Fix the issue, then signal completion again. Do not hand off until the post-hook passes.",
+  ].join("\n");
+}
+
+/**
+ * Execute the stage's post-hook. Returns `true` when the handler should stop
+ * processing this idle event — either because a retry feedback prompt was
+ * injected or because the pipeline was paused after retry exhaustion. Returns
+ * `false` when the hook passed and the caller should keep advancing.
+ */
+async function runPostHookForStage(
+  instance: PipelineInstance,
+  stageId: string,
+  postHook: { commands: string[]; maxRetries: number },
+  deps: EventHandlerDeps,
+): Promise<boolean> {
+  const runner = deps.postHookRunner ?? runPostHook;
+  const projectDir = deps.state.engineConfig.projectDir;
+  const result = await runner({ commands: postHook.commands, cwd: projectDir });
+  if (result.ok) return false;
+
+  const currentStage = instance.stages[instance.currentStageIndex];
+  if (!currentStage) return false;
+
+  const used = currentStage.postHookRetriesUsed ?? 0;
+  const signalPath = join(projectDir, ".lattice", "signals", `${stageId}.json`);
+
+  if (used < postHook.maxRetries) {
+    currentStage.postHookRetriesUsed = used + 1;
+    instance.updatedAt = new Date().toISOString();
+    await rm(signalPath, { force: true });
+    await saveInstance(projectDir, instance);
+
+    deps.log.warn(`Post-hook failed for "${stageId}" (retry ${used + 1}/${postHook.maxRetries}): ${result.command}`);
+
+    if (deps.state.parentSessionId) {
+      await deps.sessions.injectPrompt(
+        deps.state.parentSessionId,
+        currentStage.agent,
+        postHookFeedbackPrompt(result.command, result.output),
+      );
+    }
+    return true;
+  }
+
+  currentStage.status = "rejected";
+  currentStage.verdict = "reject";
+  currentStage.completedAt = new Date().toISOString();
+  currentStage.summary = `Post-hook \`${result.command}\` failed after ${postHook.maxRetries} retries.\n${result.output}`;
+  instance.status = "paused";
+  instance.updatedAt = new Date().toISOString();
+  await rm(signalPath, { force: true });
+  await saveInstance(projectDir, instance);
+
+  deps.log.warn(`Post-hook for "${stageId}" exhausted retries, pausing pipeline`);
+
+  if (deps.state.parentSessionId) {
+    await deps.sessions.injectPrompt(
+      deps.state.parentSessionId,
+      "build",
+      postHookPauseMessage(instance.pipelineName, stageId, result.command, result.output),
+    );
+  }
+  return true;
 }
 
 /**
@@ -122,6 +208,13 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
       if (!completion.complete) return;
 
       deps.log.info(`Stage "${currentStage.id}" complete: ${completion.summary ?? "done"}`);
+
+      const stageDef = flat.stages[instance.currentStageIndex];
+      if (stageDef?.postHook) {
+        const hookHandled = await runPostHookForStage(instance, currentStage.id, stageDef.postHook, deps);
+        if (hookHandled) return;
+      }
+
       await cleanBlockedFile(deps.state.engineConfig.projectDir);
 
       const result = await advancePipeline(instance, flat, deps.state.engineConfig, completion);
