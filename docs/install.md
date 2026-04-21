@@ -87,6 +87,7 @@ Inside OpenCode, these framework commands should exist:
 - `/lattice-status`
 - `/lattice-abort`
 - `/lattice-retry`
+- `/lattice-proceed`
 
 Any pipeline you drop into the discovery paths also appears as a slash command with its pipeline `name`.
 

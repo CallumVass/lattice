@@ -38,7 +38,7 @@ function makeState(registry: PipelineRegistry, activeInstance?: PipelineInstance
 }
 
 function getFlattened(registry: PipelineRegistry) {
-  return (name: string): FlattenedPipeline => {
+  return async (name: string): Promise<FlattenedPipeline> => {
     const definition = registry.get(name);
     if (!definition) throw new Error(`Pipeline "${name}" not found`);
     return flattenPipeline(definition, registry);

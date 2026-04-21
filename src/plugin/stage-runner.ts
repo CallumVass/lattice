@@ -1,5 +1,5 @@
 import type { EngineConfig, FlattenedPipeline, SessionProvider } from "../engine/index.js";
-import { buildStageAction, markStageRunning } from "../engine/index.js";
+import { buildStageAction, markStageRunning, resolveModelOverride } from "../engine/index.js";
 import type { LatticeConfig, PipelineInstance } from "../schema/index.js";
 import { type DiscoveredSkill, type ScoringProvider, selectSkills } from "../skills/index.js";
 import type { createLogger } from "./logger.js";
@@ -68,8 +68,15 @@ export async function executeStageAction(
   const stageIndex = (instance.stages.findIndex((s) => s.id === action.stageId) ?? 0) + 1;
   const progress = `[${stageIndex}/${instance.stages.length}]`;
 
+  const modelOverride = resolveModelOverride(deps.latticeConfig, action.agent);
+  if (modelOverride) {
+    deps.log.info(
+      `${progress} Model override for ${action.agent}: ${modelOverride.providerID}/${modelOverride.modelID}`,
+    );
+  }
+
   if (action.type === "inject") {
-    await deps.sessions.injectPrompt(parentSessionId, action.agent, action.prompt);
+    await deps.sessions.injectPrompt(parentSessionId, action.agent, action.prompt, modelOverride);
     await markStageRunning(instance, deps.engineConfig);
     deps.log.info(`${progress} Stage "${action.stageId}" (agent: ${action.agent})`);
   } else {
@@ -78,6 +85,7 @@ export async function executeStageAction(
       action.agent,
       action.prompt,
       `${progress} Lattice: ${action.stageId}`,
+      modelOverride,
     );
     await markStageRunning(instance, deps.engineConfig);
     deps.log.info(`${progress} Subtask "${action.stageId}" (agent: ${action.agent})`);

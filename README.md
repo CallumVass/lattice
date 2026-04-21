@@ -52,11 +52,12 @@ cd <your-project> && npm install --save-dev @callumvass/lattice   # for project 
 
 ## Framework Commands
 
-These three come from Lattice itself, independent of your pipelines:
+These come from Lattice itself, independent of your pipelines:
 
 - `/lattice-status` — show current pipeline state
 - `/lattice-abort` — stop the active pipeline
 - `/lattice-retry [response]` — resume a paused pipeline, optionally with a reply to the pause reason
+- `/lattice-proceed [reason]` — accept a rejected stage and advance past it
 
 ## First Use
 

@@ -11,6 +11,7 @@ import type { PluginState } from "./state.js";
 import { AgentTracker, buildSystemTransform, SkillStore } from "./system-transform.js";
 import {
   createLatticeAbortTool,
+  createLatticeProceedTool,
   createLatticeRetryTool,
   createLatticeRunTool,
   createLatticeSignalTool,
@@ -46,14 +47,27 @@ const server: Plugin = async ({ client, directory }) => {
     engineConfig: { projectDir: directory, latticeConfig },
   };
 
-  function getFlattened(name: string) {
+  async function getFlattened(name: string) {
     let flat = state.flattenedCache.get(name);
-    if (!flat) {
-      const def = state.registry.get(name);
-      if (!def) throw new Error(`Pipeline "${name}" not found`);
-      flat = flattenPipeline(def, state.registry);
-      state.flattenedCache.set(name, flat);
+    if (flat) return flat;
+
+    let def = state.registry.get(name);
+    if (!def) {
+      // Registry miss — re-scan pipeline dirs. Covers: pipelines added
+      // mid-session, plugin-state resets, and transient registry corruption
+      // (the case that stranded PR #480 mid-run with "Pipeline not found").
+      const refreshed = await loadPipelines(pipelineDirs);
+      state.registry = refreshed;
+      state.flattenedCache.clear();
+      def = refreshed.get(name);
+      if (!def) {
+        throw new Error(`Pipeline "${name}" not found. Available: ${[...refreshed.keys()].join(", ") || "(none)"}`);
+      }
+      log.info(`Pipeline registry reloaded on miss — found "${name}" after re-scan`);
     }
+
+    flat = flattenPipeline(def, state.registry);
+    state.flattenedCache.set(name, flat);
     return flat;
   }
 
@@ -71,9 +85,9 @@ const server: Plugin = async ({ client, directory }) => {
   // Tools still invoke stage-runner's skill selector directly once they know
   // which pipeline is running, hence the thin wrapper that resolves the
   // flattened pipeline for the currently active instance.
-  const selectSkillsForActiveStage = (sessionId: string, stageId: string, agent: string, goal: string) => {
-    const flat = state.activeInstance ? getFlattened(state.activeInstance.pipelineName) : undefined;
-    if (!flat) return Promise.resolve();
+  const selectSkillsForActiveStage = async (sessionId: string, stageId: string, agent: string, goal: string) => {
+    if (!state.activeInstance) return;
+    const flat = await getFlattened(state.activeInstance.pipelineName);
     return selectSkillsForStage(sessionId, flat, stageId, agent, goal, stageRunnerDeps);
   };
 
@@ -85,6 +99,7 @@ const server: Plugin = async ({ client, directory }) => {
       lattice_status: createLatticeStatusTool(toolDeps),
       lattice_abort: createLatticeAbortTool(toolDeps),
       lattice_retry: createLatticeRetryTool(toolDeps),
+      lattice_proceed: createLatticeProceedTool(toolDeps),
       lattice_signal: createLatticeSignalTool(toolDeps),
     },
 
@@ -110,6 +125,13 @@ const server: Plugin = async ({ client, directory }) => {
         template:
           "The user has explicitly invoked /lattice-retry. Call the lattice_retry tool with confirm: true. " +
           "If the user's most recent message contains a decision, clarification, or guidance that answers the pause reason, pass it verbatim as the `response` argument so the retried stage receives it. " +
+          "Do not call any other lattice tools.",
+      };
+      config.command["lattice-proceed"] = {
+        description: "Accept a paused pipeline's rejection and advance past it",
+        template:
+          "The user has explicitly invoked /lattice-proceed. Call the lattice_proceed tool with confirm: true. " +
+          'If the user supplied a justification (e.g. "shared-file edits are intentional"), pass it verbatim as the `reason` argument. ' +
           "Do not call any other lattice tools.",
       };
     },

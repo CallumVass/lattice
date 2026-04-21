@@ -1,5 +1,5 @@
 import type { createOpencodeClient } from "@opencode-ai/sdk";
-import type { SessionProvider } from "./session.js";
+import type { ModelOverride, SessionProvider } from "./session.js";
 
 type Client = ReturnType<typeof createOpencodeClient>;
 
@@ -15,13 +15,14 @@ function errorMessage(error: unknown): string {
 
 export function createOpencodeSessionProvider(client: Client, directory: string): SessionProvider {
   return {
-    async injectPrompt(sessionId: string, agent: string, prompt: string): Promise<void> {
+    async injectPrompt(sessionId: string, agent: string, prompt: string, model?: ModelOverride): Promise<void> {
       const { error } = await client.session.promptAsync({
         path: { id: sessionId },
         query: { directory },
         body: {
           agent,
           parts: [{ type: "text", text: prompt }],
+          ...(model && { model }),
         },
       });
       if (error) {
@@ -29,16 +30,40 @@ export function createOpencodeSessionProvider(client: Client, directory: string)
       }
     },
 
-    async injectSubtask(sessionId: string, agent: string, prompt: string, description: string): Promise<void> {
+    async injectSubtask(
+      sessionId: string,
+      agent: string,
+      prompt: string,
+      description: string,
+      model?: ModelOverride,
+    ): Promise<void> {
+      // Subtasks carry their model inside the SubtaskPartInput — `body.model`
+      // is ignored for subtasks. SubtaskPartInput.model is the right field,
+      // verified against @opencode-ai/sdk types.gen.d.ts.
       const { error } = await client.session.promptAsync({
         path: { id: sessionId },
         query: { directory },
         body: {
-          parts: [{ type: "subtask", prompt, description, agent }],
+          parts: [{ type: "subtask", prompt, description, agent, ...(model && { model }) }],
         },
       });
       if (error) {
         throw new Error(`Failed to inject subtask: ${errorMessage(error)}`);
+      }
+    },
+
+    async notify(sessionId: string, message: string): Promise<void> {
+      const { error } = await client.session.promptAsync({
+        path: { id: sessionId },
+        query: { directory },
+        body: {
+          noReply: true,
+          parts: [{ type: "text", text: message }],
+        },
+      });
+      if (error) {
+        // Notification failure shouldn't break the pipeline — log-and-swallow.
+        // The caller logs to opencode's app log separately.
       }
     },
 

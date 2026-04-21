@@ -53,6 +53,8 @@ When a stage signals `reject` or `blocked`, the pipeline becomes `paused`.
 
 If no stage is rejected (the pipeline is merely at a `pauseAfter` gate), `/lattice-retry` just unpauses and the engine moves on to the next stage.
 
+`/lattice-proceed [reason]` is the inverse of retry: it marks the rejected stage completed (with verdict `approve` and the optional reason appended to its summary) and advances to the next stage. Use this when you've reviewed the rejection and decided the findings are acceptable as-is.
+
 ## Post-Hooks
 
 A stage can declare a `postHook` to run shell commands after it signals completion but before the pipeline advances. Use this for lint, format, and test checks that should gate handoff to the next stage.
@@ -73,8 +75,9 @@ Commands run sequentially in the project directory; the first non-zero exit stop
 
 Behaviour on failure:
 
-- The failing command's output is injected back into the same stage's session as a follow-up prompt, asking the agent to fix it before handing off again.
+- The failing command's output is injected back into the same stage as a follow-up, asking the agent to fix it before handing off again. Forked stages (`fork: true`) retry via an in-session prompt; cold-subtask stages (`fork: false`) retry as a fresh subtask so the retry doesn't silently land in the parent session.
 - The signal file is cleared so the stage re-enters the normal completion loop — the agent works, re-signals, and the hook runs again.
 - After `maxRetries` follow-ups still fail, the stage is marked `rejected` with the hook output as its summary and the pipeline pauses. `/lattice-retry` resumes with the usual rewind-to-implementor semantics.
+- While the hook runs, lattice posts progress notifications (`running post-hook…`, `[1/N] <command>`, pass/fail) into the parent session so long-running checks don't look like the pipeline has hung.
 
 `maxRetries` defaults to `1`. Set to `0` to fail fast on the first hook failure.
