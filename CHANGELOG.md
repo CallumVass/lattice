@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.0](https://github.com/CallumVass/lattice/compare/lattice-v2.3.0...lattice-v2.4.0) (2026-04-21)
+
+
+### Features
+
+* **plugin:** add model overrides, post-hook progress, and lattice_proceed ([b618561](https://github.com/CallumVass/lattice/commit/b618561c539027155f1a43b7a7d9fbabfc0bb1db))
+
 ## [2.3.0](https://github.com/CallumVass/lattice/compare/lattice-v2.2.0...lattice-v2.3.0) (2026-04-20)
 
 
