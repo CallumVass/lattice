@@ -15,4 +15,4 @@ export { type FlattenedPipeline, flattenPipeline } from "./flattener.js";
 export { loadPipelines, type PipelineRegistry } from "./loader.js";
 export { createOpencodeSessionProvider } from "./opencode-session.js";
 export { findActiveInstance, saveInstance } from "./persistence.js";
-export type { SessionProvider } from "./session.js";
+export { resolveModelOverride, type SessionProvider } from "./session.js";

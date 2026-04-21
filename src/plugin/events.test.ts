@@ -23,6 +23,7 @@ let projectDir: string;
 const NO_OP_SESSIONS: SessionProvider = {
   injectPrompt: vi.fn(async () => {}),
   injectSubtask: vi.fn(async () => {}),
+  notify: vi.fn(async () => {}),
   getLastAssistantMessage: vi.fn(async () => ""),
 };
 
@@ -51,7 +52,7 @@ interface HandlerOverrides {
 
 function buildHandler(state: PluginState, registry: PipelineRegistry, overrides: HandlerOverrides = {}) {
   const flattened = new Map<string, FlattenedPipeline>();
-  const getFlattened = (name: string): FlattenedPipeline => {
+  const getFlattened = async (name: string): Promise<FlattenedPipeline> => {
     let flat = flattened.get(name);
     if (!flat) {
       const def = registry.get(name);
@@ -202,12 +203,13 @@ describe("session.idle pipeline progression", () => {
       injectSubtask: vi.fn(async () => {
         throw new Error("subtask failed");
       }),
+      notify: vi.fn(async () => {}),
       getLastAssistantMessage: vi.fn(async () => ""),
     };
 
     const failingHandler = createEventHandler({
       state,
-      getFlattened: () => flat,
+      getFlattened: async () => flat,
       sessions,
       engineConfig: state.engineConfig,
       latticeConfig: {},
@@ -397,13 +399,18 @@ describe("post-hook integration", () => {
     expect(state.activeInstance).toBeUndefined();
   });
 
-  it("injects feedback and stays running when the hook fails within retry budget", async () => {
+  it("injects feedback as a subtask and stays running when the hook fails within retry budget (fork: false)", async () => {
+    // oneStageWithHook has no `fork` set, so it defaults to false (subtask).
+    // Retry must go through injectSubtask — routing via injectPrompt would
+    // land the retry in the parent session instead of a fresh subtask.
     const registry = registryOf(oneStageWithHook);
     const state = makeState({}, registry);
     const injectPrompt = vi.fn<SessionProvider["injectPrompt"]>(async () => {});
+    const injectSubtask = vi.fn<SessionProvider["injectSubtask"]>(async () => {});
     const sessions: SessionProvider = {
       injectPrompt,
-      injectSubtask: vi.fn(async () => {}),
+      injectSubtask,
+      notify: vi.fn(async () => {}),
       getLastAssistantMessage: vi.fn(async () => ""),
     };
     const runner: PostHookRunner = vi.fn(async () => ({
@@ -421,6 +428,7 @@ describe("post-hook integration", () => {
 
     await fireIdle(handler); // pending → running
     injectPrompt.mockClear();
+    injectSubtask.mockClear();
 
     await writeSignal("only", "complete", "done");
     await fireIdle(handler);
@@ -430,11 +438,13 @@ describe("post-hook integration", () => {
     expect(state.activeInstance?.stages[0]?.postHookRetriesUsed).toBe(1);
     expect(state.activeInstance?.status).toBe("running");
 
-    expect(injectPrompt).toHaveBeenCalledOnce();
-    const call = injectPrompt.mock.calls[0];
+    expect(injectPrompt).not.toHaveBeenCalled();
+    expect(injectSubtask).toHaveBeenCalledOnce();
+    const call = injectSubtask.mock.calls[0];
     expect(call?.[1]).toBe("planner");
     expect(call?.[2]).toContain("npm run check");
     expect(call?.[2]).toContain("typecheck error in foo.ts");
+    expect(call?.[3]).toContain("post-hook retry");
 
     // Signal file must be cleared so the next idle doesn't immediately re-trigger completion.
     await expect(
@@ -450,6 +460,7 @@ describe("post-hook integration", () => {
     const sessions: SessionProvider = {
       injectPrompt,
       injectSubtask: vi.fn(async () => {}),
+      notify: vi.fn(async () => {}),
       getLastAssistantMessage: vi.fn(async () => ""),
     };
     const runner: PostHookRunner = vi.fn(async () => ({

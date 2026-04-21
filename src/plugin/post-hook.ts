@@ -8,6 +8,12 @@ export type PostHookResult = { ok: true } | { ok: false; command: string; exitCo
 export interface RunPostHookOptions {
   commands: string[];
   cwd: string;
+  /**
+   * Optional callback invoked before each command runs. Used by the plugin
+   * layer to surface progress to the user (otherwise the pipeline silently
+   * blocks for the duration of the verify commands).
+   */
+  onCommandStart?: (command: string, index: number, total: number) => void | Promise<void>;
 }
 
 export type PostHookRunner = (options: RunPostHookOptions) => Promise<PostHookResult>;
@@ -18,7 +24,12 @@ export type PostHookRunner = (options: RunPostHookOptions) => Promise<PostHookRe
  * side effect — the engine layer stays free of shell execution.
  */
 export async function runPostHook(options: RunPostHookOptions): Promise<PostHookResult> {
-  for (const command of options.commands) {
+  for (let i = 0; i < options.commands.length; i++) {
+    const command = options.commands[i];
+    if (!command) continue;
+    if (options.onCommandStart) {
+      await options.onCommandStart(command, i, options.commands.length);
+    }
     try {
       await execAsync(command, { cwd: options.cwd });
     } catch (err) {

@@ -15,6 +15,7 @@ let projectDir: string;
 const NO_OP_SESSIONS: SessionProvider = {
   injectPrompt: vi.fn(async () => {}),
   injectSubtask: vi.fn(async () => {}),
+  notify: vi.fn(async () => {}),
   getLastAssistantMessage: vi.fn(async () => ""),
 };
 

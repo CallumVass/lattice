@@ -7,7 +7,7 @@ import type { PluginState } from "./state.js";
 
 interface ToolDeps {
   state: PluginState;
-  getFlattened: (name: string) => ReturnType<typeof import("../engine/flattener.js").flattenPipeline>;
+  getFlattened: (name: string) => Promise<ReturnType<typeof import("../engine/flattener.js").flattenPipeline>>;
   selectSkillsForStage: (sessionId: string, stageId: string, agent: string, goal: string) => Promise<void>;
   log: { info: (msg: string) => void; warn: (msg: string) => void; error: (msg: string) => void };
 }
@@ -38,7 +38,7 @@ export function createLatticeRunTool(deps: ToolDeps): ToolDefinition {
 
       try {
         await cleanSignals(state.engineConfig.projectDir);
-        const flat = getFlattened(args.pipeline);
+        const flat = await getFlattened(args.pipeline);
         state.parentSessionId = context.sessionID;
         const result = await startPipeline(flat, args.goal, state.engineConfig);
         state.activeInstance = result.instance;
@@ -126,7 +126,9 @@ export function createLatticeAbortTool(deps: ToolDeps): ToolDefinition {
 export function createLatticeRetryTool(deps: ToolDeps): ToolDefinition {
   return tool({
     description:
-      "Retry a paused lattice pipeline. Loops back to the nearest implementor stage, or retries the rejected stage. " +
+      "Retry a paused lattice pipeline. Loops back to the nearest implementor stage (so it can address review findings) or resumes from a gated pause. " +
+      "Use this when you want the pipeline to fix the issue that caused the pause. " +
+      "To instead ACCEPT a review's findings and advance PAST the rejected stage without changes, use `lattice_proceed`. " +
       "USER-INITIATED ONLY — do NOT call this tool in response to an injected pipeline-paused status message. " +
       "The `confirm` argument must be `true`; it exists to prevent accidental auto-retry when the orchestrator reads a pause notification. " +
       "Pass the user's clarifying reply as `response` so the retried stage can act on it.",
@@ -195,6 +197,71 @@ export function createLatticeRetryTool(deps: ToolDeps): ToolDefinition {
 
       log.info(`Retrying from stage "${instance.stages[retryIndex]?.id}"`);
       return `Retrying from stage "${instance.stages[retryIndex]?.id}". The stage will begin automatically.`;
+    },
+  });
+}
+
+export function createLatticeProceedTool(deps: ToolDeps): ToolDefinition {
+  return tool({
+    description:
+      "Accept a paused pipeline's rejection and advance PAST the rejected stage. " +
+      "Use when the user has decided the review's findings are acceptable (e.g. intentional shared-file edits, known scope exceptions) and wants to move on rather than address them. " +
+      "Without this, `lattice_retry` would rewind to the implementor and the pipeline would loop on the same rejection. " +
+      "USER-INITIATED ONLY — do NOT call this in response to an injected pipeline-paused status message. " +
+      "`confirm` must be `true`. Pass the user's justification as `reason` for the audit trail.",
+    args: {
+      confirm: tool.schema
+        .boolean()
+        .describe("Must be true. Set only when the user has explicitly asked to proceed past the rejection."),
+      reason: tool.schema
+        .string()
+        .optional()
+        .describe(
+          'Optional justification for accepting the rejection (e.g. "scope findings are intentional shared-file edits approved by the user"). Recorded in the stage summary.',
+        ),
+    },
+    async execute(args) {
+      const { state, log } = deps;
+      if (args.confirm !== true) {
+        return "lattice_proceed requires confirm: true. Only call this when the user explicitly asks to advance past a rejection.";
+      }
+      const instance = state.activeInstance;
+      if (!instance || instance.status !== "paused") return "No paused pipeline to proceed past.";
+
+      const rejectedIndex = instance.stages.findIndex((s) => s.status === "rejected");
+      if (rejectedIndex === -1) {
+        return "No rejected stage — nothing to proceed past. Use `lattice_retry` to resume from a gated pause.";
+      }
+
+      const rejected = instance.stages[rejectedIndex];
+      if (rejected) {
+        rejected.status = "completed";
+        rejected.verdict = "approve";
+        rejected.summary = [rejected.summary ?? "", "", `[proceeded by user${args.reason ? `: ${args.reason}` : ""}]`]
+          .join("\n")
+          .trim();
+        rejected.completedAt = new Date().toISOString();
+      }
+
+      const advanceIndex = rejectedIndex + 1;
+      instance.status = "running";
+      instance.currentStageIndex = advanceIndex;
+      instance.updatedAt = new Date().toISOString();
+      instance.pendingResponse = args.reason?.trim() || undefined;
+
+      await cleanSignals(state.engineConfig.projectDir);
+
+      const advancedTo = instance.stages[advanceIndex]?.id;
+      if (!advancedTo) {
+        instance.status = "completed";
+        await saveInstance(state.engineConfig.projectDir, instance);
+        log.info(`Proceed accepted for "${rejected?.id}"; pipeline has no further stages — completing.`);
+        return `Proceed accepted for "${rejected?.id}". Pipeline completed (no further stages).`;
+      }
+
+      await saveInstance(state.engineConfig.projectDir, instance);
+      log.info(`Proceed accepted for "${rejected?.id}"; advancing to "${advancedTo}"`);
+      return `Proceed accepted for rejected stage "${rejected?.id}". Advancing to "${advancedTo}".`;
     },
   });
 }

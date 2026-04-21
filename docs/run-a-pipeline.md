@@ -5,6 +5,7 @@
 - `/lattice-status`: show current pipeline status
 - `/lattice-abort`: stop the active pipeline
 - `/lattice-retry [response]`: resume a paused pipeline, optionally passing your reply to the pause reason
+- `/lattice-proceed [reason]`: accept a rejected stage and advance past it (instead of looping back to the implementor)
 
 ## Your Commands
 
@@ -41,3 +42,5 @@ Use:
 - `/lattice-abort` to stop it.
 
 For a rejected stage, `/lattice-retry` rewinds to the nearest `implementor`-typed stage (looking backwards from the rejection) and restarts. Without an implementor predecessor, it retries the rejected stage itself.
+
+If you've decided the rejection is acceptable (e.g. intentional shared-file edits), use `/lattice-proceed [reason]` to mark the rejected stage completed and advance to the next stage. The optional reason is recorded in the stage summary.
