@@ -59,10 +59,12 @@ Tradeoff: no autocomplete, no compile-time check that `signals` matches the comp
 - `completion`: `idle` or `tool_signal`
 - `signals`: **required for `tool_signal` stages**. Declares the verdicts this stage may emit. Any of `"complete" | "approve" | "reject" | "blocked"`. Tailors the engine-injected signalling instructions the agent sees, and the engine warns if the agent signals outside the declared set.
 - `fork`: reuse the current conversation context when `true`; start a cold subtask when `false`
-- `pauseAfter`: `boolean | { prompt: string }` — pause the pipeline after this stage completes. `true` renders a generic pause message; `{ prompt }` renders the given body verbatim (with `{{summary}}` / `{{reason}}` replaced by the stage's completion summary).
+- `pauseAfter`: `boolean | { prompt?: string; hardGate?: boolean }` — pause the pipeline after this stage completes. `true` renders a generic pause message; `{ prompt }` renders the given body verbatim (with `{{summary}}` / `{{reason}}` replaced by the stage's completion summary). Set `hardGate: true` to require a user-typed `/lattice-retry` slash command to release — see [Hard gates](#hard-gates) below.
 - `postHook`: `{ commands: string[]; maxRetries?: number }` — shell commands to run after the stage signals completion but before advancing. On failure the agent is asked to fix it; see [`state-and-completion.md`](state-and-completion.md#post-hooks).
 - `skills`: optional pinned or dynamic skill selection (see [`skills.md`](skills.md))
 - `prompt`: extra instructions appended to the stage prompt. Use this to tell the agent about pipeline-specific wiring: what output format to produce, where to write files, etc.
+- `isRewindTarget`: `boolean` — opt this stage in as the rewind destination when a downstream stage rejects. Defaults to the legacy rule (rewind to the nearest upstream stage whose agent is literally named `implementor`). See [Reject rewinds](#reject-rewinds).
+- `maxRewinds`: `number` — cap on how many times this stage may be rewound-to. On exhaustion, `lattice_retry` pauses the pipeline with a cap-exhausted message instead of looping. Undefined = unlimited.
 
 ## Completion Methods
 
@@ -113,6 +115,48 @@ stage("plan", {
 ```
 
 `{{summary}}` and `{{reason}}` (aliases) expand to the stage's `lattice_signal` `reason`. If you need no substitution, omit the templates. Lattice wraps the body in the standard agent-guard envelope so the orchestrator doesn't auto-act on the notification.
+
+## Hard gates
+
+Soft pauses (`pauseAfter: true` or `pauseAfter: { prompt }`) are *advisory*: lattice asks the orchestrator to wait for the user, but the orchestrator can still call `lattice_retry` on its own if it misreads the pause message. For critical approval steps — plan sign-off, destructive actions, PR comment posting — use a hard gate:
+
+```ts
+stage("approve-pr-comments", {
+  agent: "pr-review-composer",
+  completion: "tool_signal",
+  signals: ["complete"],
+  pauseAfter: {
+    prompt: "Review the proposed comments above. Approve to post them to GitHub.",
+    hardGate: true,
+  },
+});
+```
+
+A hard gate refuses `lattice_retry` unless the user literally types `/lattice-retry` in the opencode TUI. The plugin observes the slash command through opencode's `command.execute.before` hook and stamps a short-lived token on the active instance; `lattice_retry` consumes the token to release. Orchestrator tool calls don't carry this signal, so they can't proxy the release.
+
+Hard gates are the right choice when the cost of a false auto-proceed is material (irreversible action, PR posted to the wrong people, destructive filesystem change). Soft pauses remain fine for "review this plan, come back when ready."
+
+## Reject rewinds
+
+When a downstream review stage emits `reject`, lattice rewinds the pipeline back to a target stage so it can address the findings. The target is chosen in this order:
+
+1. If any upstream stage has `isRewindTarget: true`, the nearest such stage is the target.
+2. Otherwise, the legacy rule fires: rewind to the nearest upstream stage whose agent is literally named `implementor`.
+3. If neither applies, lattice rewinds to the rejected stage itself.
+
+Mark a rewind target explicitly when the stage doing the work isn't named `implementor` — e.g. a ticket-authoring stage, a research stage, anything the orchestrator shouldn't share a name with:
+
+```ts
+stage("author-ticket", {
+  agent: "ticket-author",
+  completion: "tool_signal",
+  signals: ["complete"],
+  isRewindTarget: true,
+  maxRewinds: 2, // optional cap
+});
+```
+
+`maxRewinds` bounds the rewind loop. When the cap is reached, lattice leaves the pipeline paused with a message pointing the user at `/lattice-proceed` (accept the rejection and advance) or `/lattice-abort`. Without a cap, the loop runs until the orchestrator's ack budget or wall-clock budget runs out — which is almost never the right failure mode for a stuck pipeline.
 
 ## Pipeline Composition
 

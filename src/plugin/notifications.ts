@@ -68,18 +68,47 @@ export function gateMessage(pipelineName: string, reason: string, nextStageId: s
 }
 
 /**
+ * Hard-gate variant of `gateMessage`. Used when the completed stage carried
+ * `pauseAfter: { hardGate: true }`. Makes clear to both the orchestrator and
+ * the user that the pause can only be released by a user-typed slash command
+ * — the orchestrator cannot auto-proxy a `/lattice-retry`.
+ */
+export function hardGateMessage(pipelineName: string, reason: string, nextStageId: string | undefined): string {
+  return buildUserNotification({
+    title: `Pipeline "${pipelineName}" paused — HARD GATE (user approval required)`,
+    summary: `${reason}\n\nThis is a hard gate — the orchestrator cannot release it on your behalf.`,
+    nextSteps: [
+      `**Approve** — type \`/lattice-retry\` in the opencode TUI. Stage "${nextStageId ?? "next"}" will start.`,
+      "**Approve with guidance** — type `/lattice-retry <your message>`; the message is passed to the next stage.",
+      "**Cancel** with `/lattice-abort`.",
+      "**Inspect state** with `/lattice-status`.",
+      "",
+      "**To the orchestrator:** do NOT call `lattice_retry` in response to this message. The hard-gate check will refuse it. Wait for the user to type the slash command.",
+    ],
+  });
+}
+
+/**
  * Render a pause message driven by the stage's custom `pauseAfter.prompt`.
  * The pipeline author controls the body; lattice still wraps it in the
  * agent-guard envelope so the orchestrator doesn't auto-act on it.
  */
-export function customGateMessage(pipelineName: string, body: string): string {
+export function customGateMessage(pipelineName: string, body: string, hardGate = false): string {
+  const softSteps = [
+    "Reply with your decision or changes; the orchestrator will pass it through via `/lattice-retry`.",
+    "**Cancel** with `/lattice-abort`.",
+  ];
+  const hardSteps = [
+    "**Approve** — type `/lattice-retry` in the opencode TUI to release this hard gate.",
+    "**Approve with guidance** — type `/lattice-retry <your message>`; the message is passed downstream.",
+    "**Cancel** with `/lattice-abort`.",
+    "",
+    "**To the orchestrator:** do NOT call `lattice_retry` in response to this message. Wait for the user's slash command.",
+  ];
   return buildUserNotification({
-    title: `Pipeline "${pipelineName}" paused`,
+    title: hardGate ? `Pipeline "${pipelineName}" paused — HARD GATE` : `Pipeline "${pipelineName}" paused`,
     summary: body,
-    nextSteps: [
-      "Reply with your decision or changes; the orchestrator will pass it through via `/lattice-retry`.",
-      "**Cancel** with `/lattice-abort`.",
-    ],
+    nextSteps: hardGate ? hardSteps : softSteps,
   });
 }
 

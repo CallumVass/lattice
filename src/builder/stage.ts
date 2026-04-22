@@ -14,6 +14,18 @@ interface BaseStageOptions {
   prompt?: string;
   pauseAfter?: PauseAfter;
   postHook?: { commands: string[]; maxRetries?: number };
+  /**
+   * Opt this stage in as the rewind target when a downstream stage rejects.
+   * When at least one stage in the pipeline is marked, the legacy
+   * `agent === "implementor"` fallback is not used. See
+   * `StageDefinition.isRewindTarget` for semantics.
+   */
+  isRewindTarget?: boolean;
+  /**
+   * Cap how many times this stage may be rewound-to. Undefined = unlimited.
+   * On exhaustion, `lattice_retry` pauses the pipeline instead of looping.
+   */
+  maxRewinds?: number;
 }
 
 export interface IdleStageOptions extends BaseStageOptions {
@@ -40,10 +52,12 @@ export function stage(id: string, options: StageOptions): StageDefinition {
     completion: options.completion,
     fork: options.fork ?? false,
     pauseAfter: options.pauseAfter ?? false,
+    isRewindTarget: options.isRewindTarget ?? false,
     ...(options.completion === "tool_signal" && { signals: options.signals }),
     ...(options.skills && { skills: { dynamic: false, pinned: [], max: 4, ...options.skills } }),
     ...(options.prompt && { prompt: options.prompt }),
     ...(postHook && { postHook }),
+    ...(options.maxRewinds !== undefined && { maxRewinds: options.maxRewinds }),
   };
 }
 

@@ -20,6 +20,8 @@ interface EngineResult {
   gateReason?: string;
   /** Rendered custom pause body from the completed stage's `pauseAfter.prompt`, if provided. */
   customGatePrompt?: string;
+  /** True when the gate was `pauseAfter: { hardGate: true }` — requires a user-typed /lattice-retry to release. */
+  hardGate?: boolean;
   /** Non-fatal diagnostics the plugin should log — e.g. an agent signalled outside its declared signals. */
   diagnostics?: string[];
 }
@@ -206,12 +208,18 @@ export async function advancePipeline(
     const nextStageId = instance.stages[nextIndex]?.id ?? "next stage";
     instance.status = "paused";
     instance.updatedAt = new Date().toISOString();
+
+    const pauseConfig = currentStageDef.pauseAfter;
+    const isObjectConfig = typeof pauseConfig === "object";
+    const hardGate = isObjectConfig && pauseConfig.hardGate === true;
+    instance.hardGated = hardGate ? true : undefined;
+
     await saveInstance(config.projectDir, instance);
 
-    const customPrompt =
-      typeof currentStageDef.pauseAfter === "object"
-        ? renderPausePrompt(currentStageDef.pauseAfter.prompt, currentStage.summary)
-        : undefined;
+    const customPromptTemplate = isObjectConfig ? pauseConfig.prompt : undefined;
+    const customPrompt = customPromptTemplate
+      ? renderPausePrompt(customPromptTemplate, currentStage.summary)
+      : undefined;
 
     const header = `Stage "${currentStage.id}" complete — awaiting user approval before running "${nextStageId}".`;
     const summary = currentStage.summary?.trim();
@@ -221,6 +229,7 @@ export async function advancePipeline(
       instance,
       gateReason,
       ...(customPrompt && { customGatePrompt: customPrompt }),
+      ...(hardGate && { hardGate: true }),
       ...(diagnostics.length > 0 && { diagnostics }),
     };
   }

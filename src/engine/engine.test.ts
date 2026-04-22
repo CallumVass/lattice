@@ -344,4 +344,45 @@ describe("custom pauseAfter prompt", () => {
     expect(result.customGatePrompt).toBeUndefined();
     expect(result.gateReason).toContain("approval");
   });
+
+  it("flags the instance as hardGated when pauseAfter.hardGate is true", async () => {
+    const p = pipeline("impl", {
+      stages: [
+        stage("plan", {
+          agent: "planner",
+          completion: "tool_signal",
+          signals: ["complete"],
+          pauseAfter: { hardGate: true },
+        }),
+        stage("build", { agent: "implementor", completion: "tool_signal", signals: ["complete"] }),
+      ],
+    });
+    const flat = flattenPipeline(p, registryOf(p));
+
+    const { instance } = await startAndRun(flat, "build", engineConfig());
+    await writeSignal("plan", "complete");
+    const result = await checkAndAdvance(instance, flat, engineConfig());
+
+    expect(result.instance.status).toBe("paused");
+    expect(result.instance.hardGated).toBe(true);
+    expect(result.hardGate).toBe(true);
+  });
+
+  it("does not set hardGated for a soft pauseAfter", async () => {
+    const p = pipeline("impl", {
+      stages: [
+        stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"], pauseAfter: true }),
+        stage("build", { agent: "implementor", completion: "tool_signal", signals: ["complete"] }),
+      ],
+    });
+    const flat = flattenPipeline(p, registryOf(p));
+
+    const { instance } = await startAndRun(flat, "build", engineConfig());
+    await writeSignal("plan", "complete");
+    const result = await checkAndAdvance(instance, flat, engineConfig());
+
+    expect(result.instance.status).toBe("paused");
+    expect(result.instance.hardGated).toBeUndefined();
+    expect(result.hardGate).toBeUndefined();
+  });
 });

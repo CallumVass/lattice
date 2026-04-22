@@ -17,7 +17,31 @@ describe("stage", () => {
       signals: ["complete"],
       fork: false,
       pauseAfter: false,
+      isRewindTarget: false,
     });
+  });
+
+  it("creates a stage with isRewindTarget and maxRewinds", () => {
+    const s = stage("author", {
+      agent: "ticket-author",
+      completion: "tool_signal",
+      signals: ["complete"],
+      isRewindTarget: true,
+      maxRewinds: 2,
+    });
+
+    expect(s.isRewindTarget).toBe(true);
+    expect(s.maxRewinds).toBe(2);
+  });
+
+  it("omits maxRewinds when undefined", () => {
+    const s = stage("plan", {
+      agent: "planner",
+      completion: "tool_signal",
+      signals: ["complete"],
+    });
+
+    expect("maxRewinds" in s).toBe(false);
   });
 
   it("creates a forked stage", () => {
