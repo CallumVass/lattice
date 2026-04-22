@@ -1,6 +1,6 @@
 {
   "name": "@callumvass/lattice",
-  "version": "2.5.0",
+  "version": "2.6.0",
   "type": "module",
   "description": "Composable agentic pipelines for OpenCode.",
   "license": "MIT",

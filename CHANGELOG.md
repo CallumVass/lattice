@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.6.0](https://github.com/CallumVass/lattice/compare/lattice-v2.5.0...lattice-v2.6.0) (2026-04-22)
+
+
+### Features
+
+* **plugin:** add /lattice-approve for gate releases and /lattice-reset for stuck runs ([325f2df](https://github.com/CallumVass/lattice/commit/325f2df40da73713f496bcacf51cfa63c3e8b9a1))
+
 ## [2.5.0](https://github.com/CallumVass/lattice/compare/lattice-v2.4.0...lattice-v2.5.0) (2026-04-22)
 
 
