@@ -57,9 +57,17 @@ When a stage signals `reject` or `blocked`, the pipeline becomes `paused`.
 
 The target stage's `rewindsUsed` counter increments on each accepted rewind. If the target declares `maxRewinds: N`, `/lattice-retry` refuses once the counter reaches the cap and leaves the pipeline paused with a message pointing at `/lattice-proceed` or `/lattice-abort`. Unbounded by default — set a cap on stages where a reviewer/target non-convergence is a realistic failure mode. See [`custom-pipelines.md`](custom-pipelines.md#reject-rewinds).
 
-If no stage is rejected (the pipeline is at a `pauseAfter` gate), `/lattice-retry` just unpauses and the engine moves on to the next stage — unless the gate is hard (`pauseAfter: { hardGate: true }`), in which case `/lattice-retry` only releases when a user-typed slash command is observed via opencode's command hook. Orchestrator-proxied retries are refused at a hard gate. See [`custom-pipelines.md`](custom-pipelines.md#hard-gates).
+If no stage is rejected (the pipeline is at a `pauseAfter` gate), use `/lattice-approve` to unpause — the previous stage succeeded, this is an approval checkpoint. `/lattice-retry` also works at a gate for back-compat, but `/lattice-approve` reads better because no retry is happening. At a hard gate (`pauseAfter: { hardGate: true }`), either command only releases when a user-typed slash command is observed via opencode's command hook — orchestrator-proxied tool calls are refused. See [`custom-pipelines.md`](custom-pipelines.md#hard-gates).
 
 `/lattice-proceed [reason]` is the inverse of retry: it marks the rejected stage completed (with verdict `approve` and the optional reason appended to its summary) and advances to the next stage. Use this when you've reviewed the rejection and decided the findings are acceptable as-is.
+
+## Recovering A Stuck `running` Pipeline
+
+If opencode dies or the plugin crashes while a stage is executing, the persisted instance ends up with `status: running` but no live session driving it. `/lattice-retry` and `/lattice-approve` both require `paused`, so the pipeline is wedged.
+
+`/lattice-reset` recovers from this: it marks the current running stage back to `pending` (clearing `sessionId`, `startedAt`, `completedAt`, `summary`, `verdict`, and `postHookRetriesUsed`) and moves the pipeline to `paused`. Completed stages are untouched. Follow up with `/lattice-retry` to restart the stuck stage from scratch, or `/lattice-abort` to throw the run away.
+
+Reset is for recovery only — it refuses if the pipeline is already `paused` (use `/lattice-retry` or `/lattice-approve`) or if there is no active pipeline.
 
 ## Post-Hooks
 

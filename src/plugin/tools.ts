@@ -3,13 +3,58 @@ import { join } from "node:path";
 import type { ToolDefinition } from "@opencode-ai/plugin/tool";
 import { tool } from "@opencode-ai/plugin/tool";
 import { cleanSignals, saveInstance, startPipeline } from "../engine/index.js";
+import type { PipelineInstance } from "../schema/index.js";
 import type { PluginState } from "./state.js";
 
 interface ToolDeps {
   state: PluginState;
   getFlattened: (name: string) => Promise<ReturnType<typeof import("../engine/flattener.js").flattenPipeline>>;
   selectSkillsForStage: (sessionId: string, stageId: string, agent: string, goal: string) => Promise<void>;
-  log: { info: (msg: string) => void; warn: (msg: string) => void; error: (msg: string) => void };
+  log: Logger;
+}
+
+type Logger = { info: (msg: string) => void; warn: (msg: string) => void; error: (msg: string) => void };
+
+/** How long a user-typed /lattice-retry or /lattice-approve slash-command token stays valid as a hard-gate release. */
+const HARD_GATE_TOKEN_TTL_MS = 60_000;
+
+/**
+ * Release a pauseAfter gate and resume the pipeline at the next stage.
+ * Shared by `lattice_retry` (back-compat path) and `lattice_approve`.
+ * Enforces the hard-gate token check when `instance.hardGated === true`.
+ */
+async function releaseGatePause(
+  instance: PipelineInstance,
+  response: string | undefined,
+  projectDir: string,
+  log: Logger,
+  toolName: "lattice_retry" | "lattice_approve",
+): Promise<string> {
+  if (instance.hardGated === true) {
+    const token = instance.userRetryToken;
+    const freshMs = token ? Date.now() - Date.parse(token.issuedAt) : Number.POSITIVE_INFINITY;
+    if (!token || !Number.isFinite(freshMs) || freshMs > HARD_GATE_TOKEN_TTL_MS) {
+      log.warn(`${toolName} refused at hard gate — no fresh /lattice-retry or /lattice-approve command observed`);
+      return [
+        "This pause is a hard gate. Hard gates are released only by a user-typed `/lattice-approve`",
+        "(or `/lattice-retry`) slash command in the opencode TUI — not by an orchestrator tool call.",
+        "",
+        "Tell the user: type `/lattice-approve` to proceed, or `/lattice-abort` to cancel.",
+        "Do not retry this tool without that signal.",
+      ].join("\n");
+    }
+    instance.userRetryToken = undefined;
+    instance.hardGated = undefined;
+  }
+
+  instance.status = "running";
+  instance.updatedAt = new Date().toISOString();
+  instance.pendingResponse = response;
+  await cleanSignals(projectDir);
+  await saveInstance(projectDir, instance);
+  const resumingId = instance.stages[instance.currentStageIndex]?.id ?? "?";
+  log.info(`Resuming from gate at stage "${resumingId}" (${toolName})`);
+  return `Resuming pipeline at stage "${resumingId}".`;
 }
 
 export function createLatticeRunTool(deps: ToolDeps): ToolDefinition {
@@ -156,35 +201,7 @@ export function createLatticeRetryTool(deps: ToolDeps): ToolDefinition {
 
       // Resume from an approval gate (pauseAfter): no rejected stage.
       if (rejectedIndex === -1) {
-        // Hard gate enforcement — require a recent user-typed /lattice-retry
-        // slash command observed by command.execute.before. The orchestrator's
-        // own tool call doesn't carry this signal.
-        if (instance.hardGated === true) {
-          const token = instance.userRetryToken;
-          const freshMs = token ? Date.now() - Date.parse(token.issuedAt) : Number.POSITIVE_INFINITY;
-          if (!token || !Number.isFinite(freshMs) || freshMs > HARD_GATE_TOKEN_TTL_MS) {
-            log.warn(`lattice_retry refused at hard gate — no fresh /lattice-retry command observed`);
-            return [
-              "This pause is a hard gate. Hard gates are released only by a user-typed `/lattice-retry`",
-              "slash command in the opencode TUI — not by an orchestrator tool call.",
-              "",
-              "Tell the user: type `/lattice-retry` to proceed, or `/lattice-abort` to cancel.",
-              "Do not retry this tool without that signal.",
-            ].join("\n");
-          }
-          // Consume the token and clear the hard-gate flag; pipeline is resuming.
-          instance.userRetryToken = undefined;
-          instance.hardGated = undefined;
-        }
-
-        instance.status = "running";
-        instance.updatedAt = new Date().toISOString();
-        instance.pendingResponse = response;
-        await cleanSignals(state.engineConfig.projectDir);
-        await saveInstance(state.engineConfig.projectDir, instance);
-        const resumingId = instance.stages[instance.currentStageIndex]?.id ?? "?";
-        log.info(`Resuming from gate at stage "${resumingId}"`);
-        return `Resuming pipeline at stage "${resumingId}".`;
+        return releaseGatePause(instance, response, state.engineConfig.projectDir, log, "lattice_retry");
       }
 
       // Reject-rewind: look for an explicitly-marked rewind target upstream.
@@ -258,16 +275,13 @@ export function createLatticeRetryTool(deps: ToolDeps): ToolDefinition {
   });
 }
 
-/** How long a /lattice-retry slash-command token stays valid as a hard-gate release. */
-const HARD_GATE_TOKEN_TTL_MS = 60_000;
-
 /**
- * Stamp a user-retry token onto the active instance. Called from the
+ * Stamp a user-unlock token onto the active instance. Called from the
  * `command.execute.before` plugin hook when the user types a `/lattice-retry`
- * slash command. Consumed by `lattice_retry` to authorise advancing past a
- * hard-gated pause.
+ * or `/lattice-approve` slash command. Consumed by `lattice_retry` and
+ * `lattice_approve` to authorise advancing past a hard-gated pause.
  */
-export async function stampUserRetryToken(state: PluginState, sessionId: string | undefined): Promise<void> {
+export async function stampUserUnlockToken(state: PluginState, sessionId: string | undefined): Promise<void> {
   const instance = state.activeInstance;
   if (!instance) return;
   instance.userRetryToken = {
@@ -339,6 +353,95 @@ export function createLatticeProceedTool(deps: ToolDeps): ToolDefinition {
       await saveInstance(state.engineConfig.projectDir, instance);
       log.info(`Proceed accepted for "${rejected?.id}"; advancing to "${advancedTo}"`);
       return `Proceed accepted for rejected stage "${rejected?.id}". Advancing to "${advancedTo}".`;
+    },
+  });
+}
+
+export function createLatticeApproveTool(deps: ToolDeps): ToolDefinition {
+  return tool({
+    description:
+      "Approve a paused lattice pipeline at a `pauseAfter` gate and advance to the next stage. " +
+      "Use this when the previous stage completed successfully and is awaiting user sign-off (e.g. plan review, destructive-action approval). " +
+      "If the pause is caused by a rejected stage, use `lattice_retry` (rewind and fix) or `lattice_proceed` (accept rejection and skip) instead. " +
+      "USER-INITIATED ONLY — do NOT call this in response to an injected pipeline-paused status message. " +
+      "The `confirm` argument must be `true`. Pass the user's reply as `response` so the next stage can act on it.",
+    args: {
+      confirm: tool.schema
+        .boolean()
+        .describe(
+          "Must be true. Set only when the user has explicitly asked to approve (e.g. they ran /lattice-approve).",
+        ),
+      response: tool.schema
+        .string()
+        .optional()
+        .describe(
+          "The user's reply to the gate (decisions, extra requirements, clarifications). Injected into the next stage's prompt.",
+        ),
+    },
+    async execute(args) {
+      const { state, log } = deps;
+      if (args.confirm !== true) {
+        return "lattice_approve requires confirm: true. This tool is user-initiated only — do not call it in response to a pipeline status message.";
+      }
+      const instance = state.activeInstance;
+      if (!instance || instance.status !== "paused") return "No paused pipeline to approve.";
+
+      const rejectedIndex = instance.stages.findIndex((s) => s.status === "rejected");
+      if (rejectedIndex !== -1) {
+        return "This pause is a rejection, not an approval gate. Use `lattice_retry` to rewind and fix, or `lattice_proceed` to accept the rejection and advance past it.";
+      }
+
+      const response = args.response?.trim() || undefined;
+      return releaseGatePause(instance, response, state.engineConfig.projectDir, log, "lattice_approve");
+    },
+  });
+}
+
+export function createLatticeResetTool(deps: ToolDeps): ToolDefinition {
+  return tool({
+    description:
+      "Recover a lattice pipeline that is stuck in `running` state with no active stage (e.g. opencode died mid-stage and the state was never transitioned to `paused`). " +
+      "Marks the current running stage `pending` (clearing its session/timestamps/summary) and moves the pipeline to `paused` so `/lattice-retry` or `/lattice-approve` can pick it up again. " +
+      "Does NOT affect completed stages. If you want to cancel the pipeline entirely, use `lattice_abort` instead. " +
+      "USER-INITIATED ONLY — do NOT call this in response to an injected pipeline status message. " +
+      "The `confirm` argument must be `true`.",
+    args: {
+      confirm: tool.schema
+        .boolean()
+        .describe("Must be true. Set only when the user has explicitly asked to reset (e.g. they ran /lattice-reset)."),
+    },
+    async execute(args) {
+      const { state, log } = deps;
+      if (args.confirm !== true) {
+        return "lattice_reset requires confirm: true. This tool is user-initiated only — do not call it in response to a pipeline status message.";
+      }
+      const instance = state.activeInstance;
+      if (!instance) return "No active pipeline to reset.";
+      if (instance.status !== "running") {
+        return `Pipeline is ${instance.status}, not running. Use \`lattice_retry\` or \`lattice_approve\` to resume a paused pipeline, or \`lattice_abort\` to cancel.`;
+      }
+
+      const stuck = instance.stages[instance.currentStageIndex];
+      if (stuck) {
+        stuck.status = "pending";
+        stuck.sessionId = undefined;
+        stuck.startedAt = undefined;
+        stuck.completedAt = undefined;
+        stuck.summary = undefined;
+        stuck.verdict = undefined;
+        stuck.postHookRetriesUsed = undefined;
+      }
+
+      instance.status = "paused";
+      instance.hardGated = undefined;
+      instance.userRetryToken = undefined;
+      instance.updatedAt = new Date().toISOString();
+
+      await cleanSignals(state.engineConfig.projectDir);
+      await saveInstance(state.engineConfig.projectDir, instance);
+
+      log.info(`Pipeline "${instance.pipelineName}" reset — stage "${stuck?.id ?? "?"}" returned to pending`);
+      return `Pipeline "${instance.pipelineName}" reset. Stage "${stuck?.id ?? "?"}" is back to pending and the pipeline is paused. Run \`/lattice-retry\` to restart the stage.`;
     },
   });
 }

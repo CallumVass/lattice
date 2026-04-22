@@ -8,6 +8,8 @@ import type { PipelineInstance } from "../schema/index.js";
 import type { PluginState } from "./state.js";
 import {
   createLatticeAbortTool,
+  createLatticeApproveTool,
+  createLatticeResetTool,
   createLatticeRetryTool,
   createLatticeRunTool,
   createLatticeSignalTool,
@@ -566,6 +568,257 @@ describe("createLatticeRetryTool", () => {
 
     expect(result).toContain('Resuming pipeline at stage "apply"');
     expect(state.activeInstance?.status).toBe("running");
+  });
+});
+
+describe("createLatticeApproveTool", () => {
+  it("releases a soft gate and resumes at the next stage", async () => {
+    const definition = pipeline("review", {
+      stages: [
+        stage("propose-comments", { agent: "pr-review-composer", completion: "tool_signal", signals: ["complete"] }),
+      ],
+    });
+    const registry = registryOf(definition);
+    const state = makeState(
+      registry,
+      runningInstance({
+        pipelineName: "review",
+        status: "paused",
+        currentStageIndex: 1,
+        stages: [
+          { id: "propose-comments", agent: "pr-review-composer", status: "completed", summary: "ready" },
+          { id: "post-comments", agent: "pr-commenter", status: "pending" },
+        ],
+      }),
+    );
+
+    const result = await createLatticeApproveTool(deps(state)).execute(
+      { confirm: true, response: "ship it" },
+      undefined as never,
+    );
+
+    expect(result).toContain('Resuming pipeline at stage "post-comments".');
+    expect(state.activeInstance?.status).toBe("running");
+    expect(state.activeInstance?.pendingResponse).toBe("ship it");
+  });
+
+  it("refuses to approve without confirm: true", async () => {
+    const registry = registryOf(
+      pipeline("review", {
+        stages: [stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] })],
+      }),
+    );
+    const state = makeState(
+      registry,
+      runningInstance({
+        status: "paused",
+        currentStageIndex: 1,
+        stages: [
+          { id: "plan", agent: "planner", status: "completed" },
+          { id: "apply", agent: "implementor", status: "pending" },
+        ],
+      }),
+    );
+
+    const result = await createLatticeApproveTool(deps(state)).execute({ confirm: false }, undefined as never);
+
+    expect(result).toContain("requires confirm: true");
+    expect(state.activeInstance?.status).toBe("paused");
+  });
+
+  it("refuses when the pause is a rejection, pointing at lattice_retry / lattice_proceed", async () => {
+    const registry = registryOf(
+      pipeline("review", {
+        stages: [stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] })],
+      }),
+    );
+    const state = makeState(
+      registry,
+      runningInstance({
+        status: "paused",
+        currentStageIndex: 0,
+        stages: [{ id: "plan", agent: "planner", status: "rejected", summary: "bad" }],
+      }),
+    );
+
+    const result = await createLatticeApproveTool(deps(state)).execute({ confirm: true }, undefined as never);
+
+    expect(result).toContain("rejection, not an approval gate");
+    expect(result).toContain("lattice_retry");
+    expect(result).toContain("lattice_proceed");
+    expect(state.activeInstance?.status).toBe("paused");
+  });
+
+  it("refuses a hard gate without a fresh unlock token", async () => {
+    const registry = registryOf(
+      pipeline("approval", {
+        stages: [
+          stage("plan", {
+            agent: "planner",
+            completion: "tool_signal",
+            signals: ["complete"],
+            pauseAfter: { hardGate: true },
+          }),
+        ],
+      }),
+    );
+    const state = makeState(
+      registry,
+      runningInstance({
+        pipelineName: "approval",
+        status: "paused",
+        currentStageIndex: 1,
+        hardGated: true,
+        stages: [
+          { id: "plan", agent: "planner", status: "completed" },
+          { id: "apply", agent: "implementor", status: "pending" },
+        ],
+      }),
+    );
+
+    const result = await createLatticeApproveTool(deps(state)).execute({ confirm: true }, undefined as never);
+
+    expect(result).toContain("hard gate");
+    expect(state.activeInstance?.status).toBe("paused");
+    expect(state.activeInstance?.hardGated).toBe(true);
+  });
+
+  it("releases a hard gate when a fresh unlock token is present", async () => {
+    const registry = registryOf(
+      pipeline("approval", {
+        stages: [
+          stage("plan", {
+            agent: "planner",
+            completion: "tool_signal",
+            signals: ["complete"],
+            pauseAfter: { hardGate: true },
+          }),
+        ],
+      }),
+    );
+    const state = makeState(
+      registry,
+      runningInstance({
+        pipelineName: "approval",
+        status: "paused",
+        currentStageIndex: 1,
+        hardGated: true,
+        userRetryToken: { issuedAt: new Date().toISOString(), sessionId: "s1" },
+        stages: [
+          { id: "plan", agent: "planner", status: "completed" },
+          { id: "apply", agent: "implementor", status: "pending" },
+        ],
+      }),
+    );
+
+    const result = await createLatticeApproveTool(deps(state)).execute({ confirm: true }, undefined as never);
+
+    expect(result).toContain('Resuming pipeline at stage "apply"');
+    expect(state.activeInstance?.status).toBe("running");
+    expect(state.activeInstance?.userRetryToken).toBeUndefined();
+    expect(state.activeInstance?.hardGated).toBeUndefined();
+  });
+});
+
+describe("createLatticeResetTool", () => {
+  it("moves a stuck running stage back to pending and pauses the pipeline", async () => {
+    const registry = registryOf(
+      pipeline("implement", {
+        stages: [
+          stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] }),
+          stage("apply", { agent: "implementor", completion: "tool_signal", signals: ["complete"] }),
+        ],
+      }),
+    );
+    const state = makeState(
+      registry,
+      runningInstance({
+        status: "running",
+        currentStageIndex: 1,
+        stages: [
+          { id: "plan", agent: "planner", status: "completed", summary: "done" },
+          {
+            id: "apply",
+            agent: "implementor",
+            status: "running",
+            sessionId: "child-1",
+            startedAt: new Date().toISOString(),
+            summary: "partial",
+            verdict: "approve",
+            postHookRetriesUsed: 1,
+          },
+        ],
+      }),
+    );
+    const signalsDir = join(projectDir, ".lattice", "signals");
+    await mkdir(signalsDir, { recursive: true });
+    await writeFile(join(signalsDir, "apply.json"), JSON.stringify({ status: "complete" }));
+
+    const result = await createLatticeResetTool(deps(state)).execute({ confirm: true }, undefined as never);
+
+    expect(result).toContain("reset");
+    expect(result).toContain("apply");
+    expect(state.activeInstance?.status).toBe("paused");
+    expect(state.activeInstance?.stages[0]).toMatchObject({ id: "plan", status: "completed", summary: "done" });
+    expect(state.activeInstance?.stages[1]).toMatchObject({
+      id: "apply",
+      status: "pending",
+      sessionId: undefined,
+      startedAt: undefined,
+      summary: undefined,
+      verdict: undefined,
+      postHookRetriesUsed: undefined,
+    });
+
+    await expect(access(join(signalsDir, "apply.json"))).rejects.toThrow();
+  });
+
+  it("refuses to reset without confirm: true", async () => {
+    const registry = registryOf(
+      pipeline("implement", {
+        stages: [stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] })],
+      }),
+    );
+    const state = makeState(registry, runningInstance());
+
+    const result = await createLatticeResetTool(deps(state)).execute({ confirm: false }, undefined as never);
+
+    expect(result).toContain("requires confirm: true");
+    expect(state.activeInstance?.status).toBe("running");
+  });
+
+  it("refuses to reset a paused pipeline (use retry/approve instead)", async () => {
+    const registry = registryOf(
+      pipeline("implement", {
+        stages: [stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] })],
+      }),
+    );
+    const state = makeState(
+      registry,
+      runningInstance({
+        status: "paused",
+        stages: [{ id: "plan", agent: "planner", status: "rejected", summary: "bad" }],
+      }),
+    );
+
+    const result = await createLatticeResetTool(deps(state)).execute({ confirm: true }, undefined as never);
+
+    expect(result).toContain("not running");
+    expect(result).toContain("lattice_retry");
+    expect(state.activeInstance?.status).toBe("paused");
+  });
+
+  it("reports no active pipeline when nothing is running", async () => {
+    const registry = registryOf(
+      pipeline("implement", {
+        stages: [stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] })],
+      }),
+    );
+    const state = makeState(registry);
+
+    const result = await createLatticeResetTool(deps(state)).execute({ confirm: true }, undefined as never);
+
+    expect(result).toBe("No active pipeline to reset.");
   });
 });
 

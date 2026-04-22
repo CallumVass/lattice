@@ -59,7 +59,7 @@ Tradeoff: no autocomplete, no compile-time check that `signals` matches the comp
 - `completion`: `idle` or `tool_signal`
 - `signals`: **required for `tool_signal` stages**. Declares the verdicts this stage may emit. Any of `"complete" | "approve" | "reject" | "blocked"`. Tailors the engine-injected signalling instructions the agent sees, and the engine warns if the agent signals outside the declared set.
 - `fork`: reuse the current conversation context when `true`; start a cold subtask when `false`
-- `pauseAfter`: `boolean | { prompt?: string; hardGate?: boolean }` — pause the pipeline after this stage completes. `true` renders a generic pause message; `{ prompt }` renders the given body verbatim (with `{{summary}}` / `{{reason}}` replaced by the stage's completion summary). Set `hardGate: true` to require a user-typed `/lattice-retry` slash command to release — see [Hard gates](#hard-gates) below.
+- `pauseAfter`: `boolean | { prompt?: string; hardGate?: boolean }` — pause the pipeline after this stage completes. `true` renders a generic pause message; `{ prompt }` renders the given body verbatim (with `{{summary}}` / `{{reason}}` replaced by the stage's completion summary). The pause is released by `/lattice-approve`. Set `hardGate: true` to require a user-typed slash command to release — see [Hard gates](#hard-gates) below.
 - `postHook`: `{ commands: string[]; maxRetries?: number }` — shell commands to run after the stage signals completion but before advancing. On failure the agent is asked to fix it; see [`state-and-completion.md`](state-and-completion.md#post-hooks).
 - `skills`: optional pinned or dynamic skill selection (see [`skills.md`](skills.md))
 - `prompt`: extra instructions appended to the stage prompt. Use this to tell the agent about pipeline-specific wiring: what output format to produce, where to write files, etc.
@@ -108,7 +108,7 @@ stage("plan", {
       "",
       "Agent said: {{summary}}",
       "",
-      "Reply `/lattice-retry` to proceed, or `/lattice-retry <edits>` with changes.",
+      "Reply `/lattice-approve` to proceed, or `/lattice-approve <edits>` with changes.",
     ].join("\n"),
   },
 });
@@ -118,7 +118,7 @@ stage("plan", {
 
 ## Hard gates
 
-Soft pauses (`pauseAfter: true` or `pauseAfter: { prompt }`) are *advisory*: lattice asks the orchestrator to wait for the user, but the orchestrator can still call `lattice_retry` on its own if it misreads the pause message. For critical approval steps — plan sign-off, destructive actions, PR comment posting — use a hard gate:
+Soft pauses (`pauseAfter: true` or `pauseAfter: { prompt }`) are *advisory*: lattice asks the orchestrator to wait for the user, but the orchestrator can still call `lattice_approve` on its own if it misreads the pause message. For critical approval steps — plan sign-off, destructive actions, PR comment posting — use a hard gate:
 
 ```ts
 stage("approve-pr-comments", {
@@ -132,7 +132,7 @@ stage("approve-pr-comments", {
 });
 ```
 
-A hard gate refuses `lattice_retry` unless the user literally types `/lattice-retry` in the opencode TUI. The plugin observes the slash command through opencode's `command.execute.before` hook and stamps a short-lived token on the active instance; `lattice_retry` consumes the token to release. Orchestrator tool calls don't carry this signal, so they can't proxy the release.
+A hard gate refuses `lattice_approve` (and `lattice_retry`) unless the user literally types `/lattice-approve` (or `/lattice-retry`) in the opencode TUI. The plugin observes the slash command through opencode's `command.execute.before` hook and stamps a short-lived token on the active instance; the release tool consumes the token to proceed. Orchestrator tool calls don't carry this signal, so they can't proxy the release.
 
 Hard gates are the right choice when the cost of a false auto-proceed is material (irreversible action, PR posted to the wrong people, destructive filesystem change). Soft pauses remain fine for "review this plan, come back when ready."
 

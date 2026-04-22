@@ -44,4 +44,5 @@ Project paths override global ones with the same name.
 2. Lattice creates a pipeline instance in `.lattice/state/`.
 3. It launches the first stage and waits for the stage's completion rule.
 4. When the stage completes, it advances automatically.
-5. If a stage returns `reject` or `blocked`, the pipeline pauses until the user runs `/lattice-retry` or `/lattice-abort`.
+5. If a stage has `pauseAfter`, the pipeline pauses for user sign-off — released with `/lattice-approve`.
+6. If a stage returns `reject` or `blocked`, the pipeline pauses until the user runs `/lattice-retry` (rewind), `/lattice-proceed` (accept), or `/lattice-abort`.
