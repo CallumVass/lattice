@@ -49,9 +49,15 @@ Attribution rules:
 
 When a stage signals `reject` or `blocked`, the pipeline becomes `paused`.
 
-`/lattice-retry` resets the rejected stage and every stage after it. If there is an earlier `implementor`-typed stage, retry jumps back there first — so the implementor can fix issues before review reruns.
+`/lattice-retry` resets the rejected stage and every stage after it, then rewinds to a rewind-target stage:
 
-If no stage is rejected (the pipeline is merely at a `pauseAfter` gate), `/lattice-retry` just unpauses and the engine moves on to the next stage.
+1. If an upstream stage has `isRewindTarget: true`, the nearest such stage is the target.
+2. Otherwise (backwards-compat), if an upstream stage's agent is literally named `implementor`, that stage is the target.
+3. Otherwise, the rejected stage itself retries.
+
+The target stage's `rewindsUsed` counter increments on each accepted rewind. If the target declares `maxRewinds: N`, `/lattice-retry` refuses once the counter reaches the cap and leaves the pipeline paused with a message pointing at `/lattice-proceed` or `/lattice-abort`. Unbounded by default — set a cap on stages where a reviewer/target non-convergence is a realistic failure mode. See [`custom-pipelines.md`](custom-pipelines.md#reject-rewinds).
+
+If no stage is rejected (the pipeline is at a `pauseAfter` gate), `/lattice-retry` just unpauses and the engine moves on to the next stage — unless the gate is hard (`pauseAfter: { hardGate: true }`), in which case `/lattice-retry` only releases when a user-typed slash command is observed via opencode's command hook. Orchestrator-proxied retries are refused at a hard gate. See [`custom-pipelines.md`](custom-pipelines.md#hard-gates).
 
 `/lattice-proceed [reason]` is the inverse of retry: it marks the rejected stage completed (with verdict `approve` and the optional reason appended to its summary) and advances to the next stage. Use this when you've reviewed the rejection and decided the findings are acceptable as-is.
 
@@ -77,7 +83,7 @@ Behaviour on failure:
 
 - The failing command's output is injected back into the same stage as a follow-up, asking the agent to fix it before handing off again. Forked stages (`fork: true`) retry via an in-session prompt; cold-subtask stages (`fork: false`) retry as a fresh subtask so the retry doesn't silently land in the parent session.
 - The signal file is cleared so the stage re-enters the normal completion loop — the agent works, re-signals, and the hook runs again.
-- After `maxRetries` follow-ups still fail, the stage is marked `rejected` with the hook output as its summary and the pipeline pauses. `/lattice-retry` resumes with the usual rewind-to-implementor semantics.
+- After `maxRetries` follow-ups still fail, the stage is marked `rejected` with the hook output as its summary and the pipeline pauses. `/lattice-retry` resumes with the usual rewind-target semantics (see [Retry Behavior](#retry-behavior) above).
 - While the hook runs, lattice posts progress notifications (`running post-hook…`, `[1/N] <command>`, pass/fail) into the parent session so long-running checks don't look like the pipeline has hung.
 
 `maxRetries` defaults to `1`. Set to `0` to fail fast on the first hook failure.

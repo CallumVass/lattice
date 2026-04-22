@@ -41,6 +41,18 @@ Use:
 - `/lattice-retry <message>` to resume with a reply that gets injected into the next stage's prompt (useful to answer the pause reason).
 - `/lattice-abort` to stop it.
 
-For a rejected stage, `/lattice-retry` rewinds to the nearest `implementor`-typed stage (looking backwards from the rejection) and restarts. Without an implementor predecessor, it retries the rejected stage itself.
+For a rejected stage, `/lattice-retry` rewinds to a rewind-target stage and restarts. The target is picked in this order:
+
+1. The nearest upstream stage with `isRewindTarget: true`.
+2. Otherwise (backward-compat), the nearest upstream stage whose agent is literally named `implementor`.
+3. Otherwise, the rejected stage itself.
+
+If the target carries a `maxRewinds` cap, `/lattice-retry` refuses once the cap is reached and leaves the pipeline paused — use `/lattice-proceed` to accept the rejection and advance, or `/lattice-abort` to cancel. This avoids indefinite loops when a reviewer and a rewind target aren't converging. See [`custom-pipelines.md`](custom-pipelines.md#reject-rewinds) for authoring rewind targets.
 
 If you've decided the rejection is acceptable (e.g. intentional shared-file edits), use `/lattice-proceed [reason]` to mark the rejected stage completed and advance to the next stage. The optional reason is recorded in the stage summary.
+
+## Hard-Gated Pauses
+
+A stage can declare `pauseAfter: { hardGate: true }` to refuse orchestrator-proxied retries. At a hard gate, the orchestrator cannot call `lattice_retry` on your behalf — you must type `/lattice-retry` (or `/lattice-retry <message>`) literally in the opencode TUI. Lattice observes the slash command through opencode's command hook and releases the gate.
+
+Use hard gates for approval steps where a false auto-proceed would be expensive: plan sign-off, destructive actions, posting comments to GitHub. Soft pauses (`pauseAfter: true` or `pauseAfter: { prompt }` without `hardGate`) remain advisory and unchanged. See [`custom-pipelines.md`](custom-pipelines.md#hard-gates) for authoring hard gates.
