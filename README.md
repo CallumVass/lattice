@@ -56,8 +56,10 @@ These come from Lattice itself, independent of your pipelines:
 
 - `/lattice-status` — show current pipeline state
 - `/lattice-abort` — stop the active pipeline
-- `/lattice-retry [response]` — resume a paused pipeline, optionally with a reply to the pause reason
+- `/lattice-approve [response]` — approve a pipeline paused at a `pauseAfter` gate and advance to the next stage
+- `/lattice-retry [response]` — resume a paused pipeline after a rejection (rewinds to the rewind target)
 - `/lattice-proceed [reason]` — accept a rejected stage and advance past it
+- `/lattice-reset` — recover a pipeline stuck in `running` state (e.g. opencode died mid-stage); marks the stuck stage pending and pauses the pipeline so retry/approve can pick it up
 
 ## First Use
 

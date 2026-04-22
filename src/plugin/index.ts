@@ -11,12 +11,14 @@ import type { PluginState } from "./state.js";
 import { AgentTracker, buildSystemTransform, SkillStore } from "./system-transform.js";
 import {
   createLatticeAbortTool,
+  createLatticeApproveTool,
   createLatticeProceedTool,
+  createLatticeResetTool,
   createLatticeRetryTool,
   createLatticeRunTool,
   createLatticeSignalTool,
   createLatticeStatusTool,
-  stampUserRetryToken,
+  stampUserUnlockToken,
 } from "./tools.js";
 
 const PIPELINE_DIR_NAME = "lattice-pipelines";
@@ -100,7 +102,9 @@ const server: Plugin = async ({ client, directory }) => {
       lattice_status: createLatticeStatusTool(toolDeps),
       lattice_abort: createLatticeAbortTool(toolDeps),
       lattice_retry: createLatticeRetryTool(toolDeps),
+      lattice_approve: createLatticeApproveTool(toolDeps),
       lattice_proceed: createLatticeProceedTool(toolDeps),
+      lattice_reset: createLatticeResetTool(toolDeps),
       lattice_signal: createLatticeSignalTool(toolDeps),
     },
 
@@ -128,6 +132,13 @@ const server: Plugin = async ({ client, directory }) => {
           "If the user's most recent message contains a decision, clarification, or guidance that answers the pause reason, pass it verbatim as the `response` argument so the retried stage receives it. " +
           "Do not call any other lattice tools.",
       };
+      config.command["lattice-approve"] = {
+        description: "Approve a lattice pipeline paused at an approval gate",
+        template:
+          "The user has explicitly invoked /lattice-approve. Call the lattice_approve tool with confirm: true. " +
+          "If the user's most recent message contains a decision, clarification, or guidance for the next stage, pass it verbatim as the `response` argument. " +
+          "Do not call any other lattice tools.",
+      };
       config.command["lattice-proceed"] = {
         description: "Accept a paused pipeline's rejection and advance past it",
         template:
@@ -135,21 +146,27 @@ const server: Plugin = async ({ client, directory }) => {
           'If the user supplied a justification (e.g. "shared-file edits are intentional"), pass it verbatim as the `reason` argument. ' +
           "Do not call any other lattice tools.",
       };
+      config.command["lattice-reset"] = {
+        description: "Recover a lattice pipeline stuck in running state (e.g. opencode died mid-stage)",
+        template:
+          "The user has explicitly invoked /lattice-reset. Call the lattice_reset tool with confirm: true. Do not call any other lattice tools.",
+      };
     },
 
     "chat.params": async (input) => {
       agentTracker.track(input.sessionID, input.agent);
     },
 
-    // Observe user-typed slash commands. When the user types `/lattice-retry`,
-    // stamp a short-lived token on the active instance so `lattice_retry` can
-    // distinguish a real user release from an orchestrator-initiated tool call.
-    // Hard-gated pauses (`pauseAfter: { hardGate: true }`) require this token;
-    // soft pauses do not. Agent tool calls do not go through this hook.
+    // Observe user-typed slash commands. When the user types `/lattice-retry`
+    // or `/lattice-approve`, stamp a short-lived token on the active instance
+    // so `lattice_retry` / `lattice_approve` can distinguish a real user
+    // release from an orchestrator-initiated tool call. Hard-gated pauses
+    // (`pauseAfter: { hardGate: true }`) require this token; soft pauses do
+    // not. Agent tool calls do not go through this hook.
     "command.execute.before": async (input) => {
-      if (input.command === "lattice-retry") {
-        await stampUserRetryToken(state, input.sessionID).catch((err) => {
-          log.warn(`Failed to stamp user-retry token: ${err instanceof Error ? err.message : String(err)}`);
+      if (input.command === "lattice-retry" || input.command === "lattice-approve") {
+        await stampUserUnlockToken(state, input.sessionID).catch((err) => {
+          log.warn(`Failed to stamp user-unlock token: ${err instanceof Error ? err.message : String(err)}`);
         });
       }
     },

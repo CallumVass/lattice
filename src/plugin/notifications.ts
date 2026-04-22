@@ -57,10 +57,10 @@ export function postHookPauseMessage(pipelineName: string, stageId: string, comm
 export function gateMessage(pipelineName: string, reason: string, nextStageId: string | undefined): string {
   return buildUserNotification({
     title: `Pipeline "${pipelineName}" paused — approval required`,
-    summary: `${reason}\n\nRead the output above and tell the orchestrator how to proceed.`,
+    summary: `${reason}\n\nThe previous stage succeeded; this is an approval checkpoint, not a failure. Read the output above and tell the orchestrator how to proceed.`,
     nextSteps: [
-      `**Approve as-is** — reply "proceed" (or similar); the orchestrator will run \`/lattice-retry\` and stage "${nextStageId ?? "next"}" will start.`,
-      "**Propose changes** — reply with your changes, questions answered, or extra requirements. The orchestrator will pass them through to the next stage via `/lattice-retry`.",
+      `**Approve as-is** — reply "proceed" (or similar); the orchestrator will run \`/lattice-approve\` and stage "${nextStageId ?? "next"}" will start.`,
+      "**Propose changes** — reply with your changes, questions answered, or extra requirements. The orchestrator will pass them through to the next stage via `/lattice-approve`.",
       "**Cancel** with `/lattice-abort`.",
       "**Inspect state** with `/lattice-status` before deciding.",
     ],
@@ -76,14 +76,14 @@ export function gateMessage(pipelineName: string, reason: string, nextStageId: s
 export function hardGateMessage(pipelineName: string, reason: string, nextStageId: string | undefined): string {
   return buildUserNotification({
     title: `Pipeline "${pipelineName}" paused — HARD GATE (user approval required)`,
-    summary: `${reason}\n\nThis is a hard gate — the orchestrator cannot release it on your behalf.`,
+    summary: `${reason}\n\nThe previous stage succeeded; this is an approval checkpoint. This is a hard gate — the orchestrator cannot release it on your behalf.`,
     nextSteps: [
-      `**Approve** — type \`/lattice-retry\` in the opencode TUI. Stage "${nextStageId ?? "next"}" will start.`,
-      "**Approve with guidance** — type `/lattice-retry <your message>`; the message is passed to the next stage.",
+      `**Approve** — type \`/lattice-approve\` in the opencode TUI. Stage "${nextStageId ?? "next"}" will start.`,
+      "**Approve with guidance** — type `/lattice-approve <your message>`; the message is passed to the next stage.",
       "**Cancel** with `/lattice-abort`.",
       "**Inspect state** with `/lattice-status`.",
       "",
-      "**To the orchestrator:** do NOT call `lattice_retry` in response to this message. The hard-gate check will refuse it. Wait for the user to type the slash command.",
+      "**To the orchestrator:** do NOT call `lattice_approve` or `lattice_retry` in response to this message. The hard-gate check will refuse it. Wait for the user to type the slash command.",
     ],
   });
 }
@@ -95,15 +95,15 @@ export function hardGateMessage(pipelineName: string, reason: string, nextStageI
  */
 export function customGateMessage(pipelineName: string, body: string, hardGate = false): string {
   const softSteps = [
-    "Reply with your decision or changes; the orchestrator will pass it through via `/lattice-retry`.",
+    "Reply with your decision or changes; the orchestrator will pass it through via `/lattice-approve`.",
     "**Cancel** with `/lattice-abort`.",
   ];
   const hardSteps = [
-    "**Approve** — type `/lattice-retry` in the opencode TUI to release this hard gate.",
-    "**Approve with guidance** — type `/lattice-retry <your message>`; the message is passed downstream.",
+    "**Approve** — type `/lattice-approve` in the opencode TUI to release this hard gate.",
+    "**Approve with guidance** — type `/lattice-approve <your message>`; the message is passed downstream.",
     "**Cancel** with `/lattice-abort`.",
     "",
-    "**To the orchestrator:** do NOT call `lattice_retry` in response to this message. Wait for the user's slash command.",
+    "**To the orchestrator:** do NOT call `lattice_approve` or `lattice_retry` in response to this message. Wait for the user's slash command.",
   ];
   return buildUserNotification({
     title: hardGate ? `Pipeline "${pipelineName}" paused — HARD GATE` : `Pipeline "${pipelineName}" paused`,

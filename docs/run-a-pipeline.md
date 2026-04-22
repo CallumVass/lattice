@@ -4,8 +4,10 @@
 
 - `/lattice-status`: show current pipeline status
 - `/lattice-abort`: stop the active pipeline
-- `/lattice-retry [response]`: resume a paused pipeline, optionally passing your reply to the pause reason
+- `/lattice-approve [response]`: approve a pipeline paused at a `pauseAfter` gate (previous stage succeeded, awaiting user sign-off) and advance to the next stage
+- `/lattice-retry [response]`: resume a paused pipeline after a rejection — rewinds to a rewind-target stage
 - `/lattice-proceed [reason]`: accept a rejected stage and advance past it (instead of looping back to the implementor)
+- `/lattice-reset`: recover a pipeline stuck in `running` state (e.g. opencode died mid-stage) — marks the stuck stage pending and pauses the pipeline so `/lattice-retry` or `/lattice-approve` can pick it up
 
 ## Your Commands
 
@@ -29,17 +31,20 @@ The goal can be free text, an issue number, or a URL — it's passed straight th
 
 ## When A Pipeline Pauses
 
-A pipeline pauses in three cases:
+A pipeline pauses in two cases:
 
-- A stage signaled `reject` or `blocked`.
-- The current stage's definition has `pauseAfter: true`.
-- The engine is at a gate between pipelines.
+- **Approval gate**: the current stage's definition has `pauseAfter: true` (or a custom pause config). The previous stage succeeded; the pipeline is waiting for user sign-off. Release with `/lattice-approve`.
+- **Rejection**: a stage signaled `reject` or `blocked`. Release with `/lattice-retry` (rewinds and retries) or `/lattice-proceed` (accepts the rejection and advances).
 
-Use:
+### Approval gates — `/lattice-approve`
 
-- `/lattice-retry` to resume.
-- `/lattice-retry <message>` to resume with a reply that gets injected into the next stage's prompt (useful to answer the pause reason).
+- `/lattice-approve` to let the pipeline continue to the next stage.
+- `/lattice-approve <message>` to resume with a reply injected into the next stage's prompt (useful for extra requirements or answering a question the pause raised).
 - `/lattice-abort` to stop it.
+
+`/lattice-retry` also works at a gate for backward-compat, but `/lattice-approve` is the intended verb — a gate is not a failure.
+
+### Rejections — `/lattice-retry` / `/lattice-proceed`
 
 For a rejected stage, `/lattice-retry` rewinds to a rewind-target stage and restarts. The target is picked in this order:
 
@@ -53,6 +58,14 @@ If you've decided the rejection is acceptable (e.g. intentional shared-file edit
 
 ## Hard-Gated Pauses
 
-A stage can declare `pauseAfter: { hardGate: true }` to refuse orchestrator-proxied retries. At a hard gate, the orchestrator cannot call `lattice_retry` on your behalf — you must type `/lattice-retry` (or `/lattice-retry <message>`) literally in the opencode TUI. Lattice observes the slash command through opencode's command hook and releases the gate.
+A stage can declare `pauseAfter: { hardGate: true }` to refuse orchestrator-proxied releases. At a hard gate, the orchestrator cannot call `lattice_approve` (or `lattice_retry`) on your behalf — you must type `/lattice-approve` (or `/lattice-approve <message>`) literally in the opencode TUI. Lattice observes the slash command through opencode's command hook and releases the gate.
 
 Use hard gates for approval steps where a false auto-proceed would be expensive: plan sign-off, destructive actions, posting comments to GitHub. Soft pauses (`pauseAfter: true` or `pauseAfter: { prompt }` without `hardGate`) remain advisory and unchanged. See [`custom-pipelines.md`](custom-pipelines.md#hard-gates) for authoring hard gates.
+
+## Recovering A Stuck Pipeline — `/lattice-reset`
+
+If opencode dies while a stage is mid-run, the instance stays on disk with `status: running` but nothing is actually executing. `/lattice-retry` and `/lattice-approve` both refuse in this state (they need `paused`), and starting a new pipeline is blocked too.
+
+`/lattice-reset` is the escape hatch: it marks the stuck stage back to `pending` (clearing its `sessionId`, `startedAt`, `summary`, and post-hook retry counter) and moves the pipeline to `paused`. Then `/lattice-retry` restarts the stage from scratch.
+
+Completed stages upstream are preserved. If you want to throw the pipeline away entirely, use `/lattice-abort` instead — reset is for recovery, abort is for cancellation.
