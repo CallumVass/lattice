@@ -324,6 +324,249 @@ describe("createLatticeRetryTool", () => {
     expect(result).toContain("requires confirm: true");
     expect(state.activeInstance?.status).toBe("paused");
   });
+
+  it("prefers an isRewindTarget stage over the legacy implementor fallback", async () => {
+    const definition = pipeline("ship-ticket", {
+      stages: [
+        stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] }),
+        stage("implement", { agent: "implementor", completion: "tool_signal", signals: ["complete"] }),
+        stage("author", {
+          agent: "ticket-author",
+          completion: "tool_signal",
+          signals: ["complete"],
+          isRewindTarget: true,
+        }),
+        stage("review", { agent: "reviewer", completion: "tool_signal", signals: ["complete", "reject"] }),
+      ],
+    });
+    const registry = registryOf(definition);
+    const state = makeState(
+      registry,
+      runningInstance({
+        pipelineName: "ship-ticket",
+        status: "paused",
+        currentStageIndex: 3,
+        stages: [
+          { id: "plan", agent: "planner", status: "completed" },
+          { id: "implement", agent: "implementor", status: "completed" },
+          { id: "author", agent: "ticket-author", status: "completed" },
+          { id: "review", agent: "reviewer", status: "rejected", summary: "fix" },
+        ],
+      }),
+    );
+
+    const result = await createLatticeRetryTool(deps(state)).execute({ confirm: true }, undefined as never);
+
+    expect(result).toContain('Retrying from stage "author"');
+    expect(state.activeInstance?.currentStageIndex).toBe(2);
+  });
+
+  it("refuses to rewind past maxRewinds and leaves the pipeline paused", async () => {
+    const definition = pipeline("bounded", {
+      stages: [
+        stage("author", {
+          agent: "ticket-author",
+          completion: "tool_signal",
+          signals: ["complete"],
+          isRewindTarget: true,
+          maxRewinds: 2,
+        }),
+        stage("judge", { agent: "judge", completion: "tool_signal", signals: ["approve", "reject"] }),
+      ],
+    });
+    const registry = registryOf(definition);
+    const state = makeState(
+      registry,
+      runningInstance({
+        pipelineName: "bounded",
+        status: "paused",
+        currentStageIndex: 1,
+        stages: [
+          { id: "author", agent: "ticket-author", status: "completed", rewindsUsed: 2 },
+          { id: "judge", agent: "judge", status: "rejected", summary: "still wrong" },
+        ],
+      }),
+    );
+
+    const result = await createLatticeRetryTool(deps(state)).execute({ confirm: true }, undefined as never);
+
+    expect(result).toContain("exhausted its rewind cap");
+    expect(result).toContain("lattice_proceed");
+    expect(state.activeInstance?.status).toBe("paused");
+    expect(state.activeInstance?.stages[0]?.rewindsUsed).toBe(2);
+  });
+
+  it("increments rewindsUsed on each accepted rewind", async () => {
+    const definition = pipeline("counting", {
+      stages: [
+        stage("author", {
+          agent: "ticket-author",
+          completion: "tool_signal",
+          signals: ["complete"],
+          isRewindTarget: true,
+          maxRewinds: 5,
+        }),
+        stage("judge", { agent: "judge", completion: "tool_signal", signals: ["approve", "reject"] }),
+      ],
+    });
+    const registry = registryOf(definition);
+    const state = makeState(
+      registry,
+      runningInstance({
+        pipelineName: "counting",
+        status: "paused",
+        currentStageIndex: 1,
+        stages: [
+          { id: "author", agent: "ticket-author", status: "completed", rewindsUsed: 1 },
+          { id: "judge", agent: "judge", status: "rejected", summary: "needs work" },
+        ],
+      }),
+    );
+
+    await createLatticeRetryTool(deps(state)).execute({ confirm: true }, undefined as never);
+
+    expect(state.activeInstance?.stages[0]?.rewindsUsed).toBe(2);
+  });
+
+  it("refuses to resume a hard-gated pause without a user-typed /lattice-retry token", async () => {
+    const definition = pipeline("approval", {
+      stages: [
+        stage("plan", {
+          agent: "planner",
+          completion: "tool_signal",
+          signals: ["complete"],
+          pauseAfter: { hardGate: true },
+        }),
+        stage("apply", { agent: "implementor", completion: "tool_signal", signals: ["complete"] }),
+      ],
+    });
+    const registry = registryOf(definition);
+    const state = makeState(
+      registry,
+      runningInstance({
+        pipelineName: "approval",
+        status: "paused",
+        currentStageIndex: 1,
+        hardGated: true,
+        stages: [
+          { id: "plan", agent: "planner", status: "completed", summary: "ready" },
+          { id: "apply", agent: "implementor", status: "pending" },
+        ],
+      }),
+    );
+
+    const result = await createLatticeRetryTool(deps(state)).execute({ confirm: true }, undefined as never);
+
+    expect(result).toContain("hard gate");
+    expect(result).toContain("/lattice-retry");
+    expect(state.activeInstance?.status).toBe("paused");
+    expect(state.activeInstance?.hardGated).toBe(true);
+  });
+
+  it("releases a hard-gated pause when a fresh userRetryToken is present", async () => {
+    const definition = pipeline("approval", {
+      stages: [
+        stage("plan", {
+          agent: "planner",
+          completion: "tool_signal",
+          signals: ["complete"],
+          pauseAfter: { hardGate: true },
+        }),
+        stage("apply", { agent: "implementor", completion: "tool_signal", signals: ["complete"] }),
+      ],
+    });
+    const registry = registryOf(definition);
+    const state = makeState(
+      registry,
+      runningInstance({
+        pipelineName: "approval",
+        status: "paused",
+        currentStageIndex: 1,
+        hardGated: true,
+        userRetryToken: { issuedAt: new Date().toISOString(), sessionId: "s1" },
+        stages: [
+          { id: "plan", agent: "planner", status: "completed", summary: "ready" },
+          { id: "apply", agent: "implementor", status: "pending" },
+        ],
+      }),
+    );
+
+    const result = await createLatticeRetryTool(deps(state)).execute({ confirm: true }, undefined as never);
+
+    expect(result).toContain('Resuming pipeline at stage "apply"');
+    expect(state.activeInstance?.status).toBe("running");
+    // Token and hardGated should be consumed on release.
+    expect(state.activeInstance?.userRetryToken).toBeUndefined();
+    expect(state.activeInstance?.hardGated).toBeUndefined();
+  });
+
+  it("refuses a stale userRetryToken (older than the TTL)", async () => {
+    const definition = pipeline("approval", {
+      stages: [
+        stage("plan", {
+          agent: "planner",
+          completion: "tool_signal",
+          signals: ["complete"],
+          pauseAfter: { hardGate: true },
+        }),
+        stage("apply", { agent: "implementor", completion: "tool_signal", signals: ["complete"] }),
+      ],
+    });
+    const registry = registryOf(definition);
+    const stale = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const state = makeState(
+      registry,
+      runningInstance({
+        pipelineName: "approval",
+        status: "paused",
+        currentStageIndex: 1,
+        hardGated: true,
+        userRetryToken: { issuedAt: stale },
+        stages: [
+          { id: "plan", agent: "planner", status: "completed" },
+          { id: "apply", agent: "implementor", status: "pending" },
+        ],
+      }),
+    );
+
+    const result = await createLatticeRetryTool(deps(state)).execute({ confirm: true }, undefined as never);
+
+    expect(result).toContain("hard gate");
+    expect(state.activeInstance?.status).toBe("paused");
+  });
+
+  it("does not require a token for a soft pause (backward compatibility)", async () => {
+    const definition = pipeline("soft-approval", {
+      stages: [
+        stage("plan", {
+          agent: "planner",
+          completion: "tool_signal",
+          signals: ["complete"],
+          pauseAfter: true,
+        }),
+        stage("apply", { agent: "implementor", completion: "tool_signal", signals: ["complete"] }),
+      ],
+    });
+    const registry = registryOf(definition);
+    const state = makeState(
+      registry,
+      runningInstance({
+        pipelineName: "soft-approval",
+        status: "paused",
+        currentStageIndex: 1,
+        // hardGated intentionally omitted — soft pause
+        stages: [
+          { id: "plan", agent: "planner", status: "completed" },
+          { id: "apply", agent: "implementor", status: "pending" },
+        ],
+      }),
+    );
+
+    const result = await createLatticeRetryTool(deps(state)).execute({ confirm: true }, undefined as never);
+
+    expect(result).toContain('Resuming pipeline at stage "apply"');
+    expect(state.activeInstance?.status).toBe("running");
+  });
 });
 
 describe("createLatticeSignalTool", () => {

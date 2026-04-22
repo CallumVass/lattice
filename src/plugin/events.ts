@@ -18,6 +18,7 @@ import {
   customGateMessage,
   failureMessage,
   gateMessage,
+  hardGateMessage,
   pauseMessage,
   postHookPauseMessage,
 } from "./notifications.js";
@@ -304,11 +305,13 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
       }
 
       if (result.gateReason && deps.state.parentSessionId) {
-        deps.log.info(`Pipeline gated: ${result.gateReason}`);
+        deps.log.info(`Pipeline gated: ${result.gateReason}${result.hardGate ? " [hard gate]" : ""}`);
         const nextStage = result.instance.stages[result.instance.currentStageIndex];
         const message = result.customGatePrompt
-          ? customGateMessage(instance.pipelineName, result.customGatePrompt)
-          : gateMessage(instance.pipelineName, result.gateReason, nextStage?.id);
+          ? customGateMessage(instance.pipelineName, result.customGatePrompt, result.hardGate === true)
+          : result.hardGate
+            ? hardGateMessage(instance.pipelineName, result.gateReason, nextStage?.id)
+            : gateMessage(instance.pipelineName, result.gateReason, nextStage?.id);
         await deps.sessions.injectPrompt(deps.state.parentSessionId, "build", message, buildModel);
       }
 

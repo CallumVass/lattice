@@ -144,7 +144,7 @@ export function createLatticeRetryTool(deps: ToolDeps): ToolDefinition {
         ),
     },
     async execute(args) {
-      const { state, log } = deps;
+      const { state, log, getFlattened } = deps;
       if (args.confirm !== true) {
         return "lattice_retry requires confirm: true. This tool is user-initiated only — do not call it in response to a pipeline status message. The user will decide whether to retry.";
       }
@@ -154,7 +154,29 @@ export function createLatticeRetryTool(deps: ToolDeps): ToolDefinition {
       const response = args.response?.trim() || undefined;
       const rejectedIndex = instance.stages.findIndex((s) => s.status === "rejected");
 
+      // Resume from an approval gate (pauseAfter): no rejected stage.
       if (rejectedIndex === -1) {
+        // Hard gate enforcement — require a recent user-typed /lattice-retry
+        // slash command observed by command.execute.before. The orchestrator's
+        // own tool call doesn't carry this signal.
+        if (instance.hardGated === true) {
+          const token = instance.userRetryToken;
+          const freshMs = token ? Date.now() - Date.parse(token.issuedAt) : Number.POSITIVE_INFINITY;
+          if (!token || !Number.isFinite(freshMs) || freshMs > HARD_GATE_TOKEN_TTL_MS) {
+            log.warn(`lattice_retry refused at hard gate — no fresh /lattice-retry command observed`);
+            return [
+              "This pause is a hard gate. Hard gates are released only by a user-typed `/lattice-retry`",
+              "slash command in the opencode TUI — not by an orchestrator tool call.",
+              "",
+              "Tell the user: type `/lattice-retry` to proceed, or `/lattice-abort` to cancel.",
+              "Do not retry this tool without that signal.",
+            ].join("\n");
+          }
+          // Consume the token and clear the hard-gate flag; pipeline is resuming.
+          instance.userRetryToken = undefined;
+          instance.hardGated = undefined;
+        }
+
         instance.status = "running";
         instance.updatedAt = new Date().toISOString();
         instance.pendingResponse = response;
@@ -165,14 +187,47 @@ export function createLatticeRetryTool(deps: ToolDeps): ToolDefinition {
         return `Resuming pipeline at stage "${resumingId}".`;
       }
 
+      // Reject-rewind: look for an explicitly-marked rewind target upstream.
+      // If none marked, fall back to the legacy literal-`implementor`-name
+      // rule (ADR 024) for backward compatibility.
+      const flat = await getFlattened(instance.pipelineName);
       let retryIndex = -1;
       for (let i = rejectedIndex - 1; i >= 0; i--) {
-        if (instance.stages[i]?.agent === "implementor") {
+        if (flat.stages[i]?.isRewindTarget) {
           retryIndex = i;
           break;
         }
       }
+      if (retryIndex === -1) {
+        for (let i = rejectedIndex - 1; i >= 0; i--) {
+          if (instance.stages[i]?.agent === "implementor") {
+            retryIndex = i;
+            break;
+          }
+        }
+      }
       if (retryIndex === -1) retryIndex = rejectedIndex;
+
+      // maxRewinds cap enforcement on the target stage.
+      const targetDef = flat.stages[retryIndex];
+      const targetInst = instance.stages[retryIndex];
+      const cap = targetDef?.maxRewinds;
+      if (cap !== undefined && targetInst) {
+        const used = targetInst.rewindsUsed ?? 0;
+        if (used >= cap) {
+          log.warn(`lattice_retry refused — stage "${targetInst.id}" has exhausted its rewind cap (${used}/${cap})`);
+          return [
+            `Stage "${targetInst.id}" has exhausted its rewind cap (${used}/${cap}).`,
+            "Pipeline remains paused. The reviewer and the rewind target are not converging;",
+            "further retries in this direction will repeat the same failure.",
+            "",
+            "Options:",
+            "- `lattice_proceed` to accept the rejection and advance past it.",
+            "- `lattice_abort` to cancel the pipeline.",
+          ].join("\n");
+        }
+        targetInst.rewindsUsed = used + 1;
+      }
 
       for (let i = retryIndex; i < instance.stages.length; i++) {
         const s = instance.stages[i];
@@ -184,6 +239,8 @@ export function createLatticeRetryTool(deps: ToolDeps): ToolDefinition {
           s.summary = undefined;
           s.verdict = undefined;
           s.postHookRetriesUsed = undefined;
+          // Preserve rewindsUsed — it's a lifetime counter, not reset on rewind.
+          if (i !== retryIndex) s.rewindsUsed = undefined;
         }
       }
 
@@ -199,6 +256,26 @@ export function createLatticeRetryTool(deps: ToolDeps): ToolDefinition {
       return `Retrying from stage "${instance.stages[retryIndex]?.id}". The stage will begin automatically.`;
     },
   });
+}
+
+/** How long a /lattice-retry slash-command token stays valid as a hard-gate release. */
+const HARD_GATE_TOKEN_TTL_MS = 60_000;
+
+/**
+ * Stamp a user-retry token onto the active instance. Called from the
+ * `command.execute.before` plugin hook when the user types a `/lattice-retry`
+ * slash command. Consumed by `lattice_retry` to authorise advancing past a
+ * hard-gated pause.
+ */
+export async function stampUserRetryToken(state: PluginState, sessionId: string | undefined): Promise<void> {
+  const instance = state.activeInstance;
+  if (!instance) return;
+  instance.userRetryToken = {
+    issuedAt: new Date().toISOString(),
+    ...(sessionId && { sessionId }),
+  };
+  instance.updatedAt = new Date().toISOString();
+  await saveInstance(state.engineConfig.projectDir, instance);
 }
 
 export function createLatticeProceedTool(deps: ToolDeps): ToolDefinition {

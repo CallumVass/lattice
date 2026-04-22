@@ -30,6 +30,12 @@ const stageInstanceSchema = z.object({
   telemetry: stageTelemetrySchema.optional(),
   /** How many post-hook retry follow-ups have been issued for this stage. */
   postHookRetriesUsed: z.number().int().nonnegative().optional(),
+  /**
+   * How many times this stage has been rewound-to. Incremented on each
+   * successful rewind arrival. Compared against `StageDefinition.maxRewinds`
+   * at retry time to enforce the per-stage cap.
+   */
+  rewindsUsed: z.number().int().nonnegative().optional(),
 });
 
 export type StageInstance = z.infer<typeof stageInstanceSchema>;
@@ -49,6 +55,25 @@ const pipelineInstanceSchema = z.object({
   updatedAt: z.string().datetime(),
   /** User response supplied via /lattice-retry. Consumed by the next stage's composed prompt, then cleared. */
   pendingResponse: z.string().optional(),
+  /**
+   * Short-lived token stamped by `command.execute.before` when the user
+   * types a `/lattice-retry` slash command. Consumed by `lattice_retry`
+   * to authorise advancing past a hard-gated pause. Absent when the tool
+   * was called by the orchestrator without a preceding slash command.
+   */
+  userRetryToken: z
+    .object({
+      issuedAt: z.string().datetime(),
+      sessionId: z.string().optional(),
+    })
+    .optional(),
+  /**
+   * True when the current paused state came from a stage with
+   * `pauseAfter.hardGate === true`. Set by the engine when it transitions
+   * the instance to paused; checked by `lattice_retry` to decide whether
+   * `userRetryToken` is mandatory.
+   */
+  hardGated: z.boolean().optional(),
 });
 
 export type PipelineInstance = z.infer<typeof pipelineInstanceSchema>;

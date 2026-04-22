@@ -16,6 +16,7 @@ import {
   createLatticeRunTool,
   createLatticeSignalTool,
   createLatticeStatusTool,
+  stampUserRetryToken,
 } from "./tools.js";
 
 const PIPELINE_DIR_NAME = "lattice-pipelines";
@@ -138,6 +139,19 @@ const server: Plugin = async ({ client, directory }) => {
 
     "chat.params": async (input) => {
       agentTracker.track(input.sessionID, input.agent);
+    },
+
+    // Observe user-typed slash commands. When the user types `/lattice-retry`,
+    // stamp a short-lived token on the active instance so `lattice_retry` can
+    // distinguish a real user release from an orchestrator-initiated tool call.
+    // Hard-gated pauses (`pauseAfter: { hardGate: true }`) require this token;
+    // soft pauses do not. Agent tool calls do not go through this hook.
+    "command.execute.before": async (input) => {
+      if (input.command === "lattice-retry") {
+        await stampUserRetryToken(state, input.sessionID).catch((err) => {
+          log.warn(`Failed to stamp user-retry token: ${err instanceof Error ? err.message : String(err)}`);
+        });
+      }
     },
 
     "experimental.chat.system.transform": buildSystemTransform(latticeConfig, agentTracker, skillStore),
