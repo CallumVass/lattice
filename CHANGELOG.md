@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.0](https://github.com/CallumVass/lattice/compare/lattice-v2.4.0...lattice-v2.5.0) (2026-04-22)
+
+
+### Features
+
+* **pipelines:** bounded rewinds, explicit rewind targets, hard-gated pauses ([99bdda5](https://github.com/CallumVass/lattice/commit/99bdda538798f43649d6d66f572aa5c7cbe9bcac))
+
 ## [2.4.0](https://github.com/CallumVass/lattice/compare/lattice-v2.3.0...lattice-v2.4.0) (2026-04-21)
 
 
