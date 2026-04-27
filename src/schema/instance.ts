@@ -6,6 +6,10 @@ const stageStatusSchema = z.enum(["pending", "running", "completed", "rejected",
 export type StageStatus = z.infer<typeof stageStatusSchema>;
 
 const stageTelemetrySchema = z.object({
+  configuredModel: z.string().optional(),
+  configuredProvider: z.string().optional(),
+  observedModel: z.string().optional(),
+  observedProvider: z.string().optional(),
   model: z.string().optional(),
   provider: z.string().optional(),
   tokensIn: z.number(),

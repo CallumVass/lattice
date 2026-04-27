@@ -53,8 +53,10 @@ export function accumulateTelemetry(existing: StageTelemetry | undefined, info: 
   };
   return {
     ...base,
-    model: base.model ?? info.modelID,
-    provider: base.provider ?? info.providerID,
+    observedModel: base.observedModel ?? info.modelID,
+    observedProvider: base.observedProvider ?? info.providerID,
+    model: base.model ?? base.configuredModel ?? info.modelID,
+    provider: base.provider ?? base.configuredProvider ?? info.providerID,
     tokensIn: base.tokensIn + (info.tokens?.input ?? 0),
     tokensOut: base.tokensOut + (info.tokens?.output ?? 0),
     tokensReasoning: base.tokensReasoning + (info.tokens?.reasoning ?? 0),
@@ -262,6 +264,12 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
       const stage = instance.stages[instance.currentStageIndex];
       if (!stage || stage.status !== "running") return;
       if (info.agent && info.agent !== stage.agent) return;
+
+      if (stage.telemetry?.configuredModel && info.modelID && stage.telemetry.configuredModel !== info.modelID) {
+        deps.log.warn(
+          `Telemetry model mismatch for stage "${stage.id}": configured ${stage.telemetry.configuredProvider ?? ""}/${stage.telemetry.configuredModel}, observed ${info.providerID ?? ""}/${info.modelID}`,
+        );
+      }
 
       stage.telemetry = accumulateTelemetry(stage.telemetry, info);
       instance.updatedAt = new Date().toISOString();

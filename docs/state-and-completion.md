@@ -28,6 +28,10 @@ Lattice subscribes to opencode's `message.updated` events and attributes assista
 
 ```ts
 telemetry?: {
+  configuredModel?: string;
+  configuredProvider?: string;
+  observedModel?: string;
+  observedProvider?: string;
   model?: string;
   provider?: string;
   tokensIn: number;
@@ -45,7 +49,8 @@ Attribution rules:
 - Only authoritative assistant turns (`role === "assistant"` and `time.completed` set) are counted. Partial streaming frames are skipped.
 - Telemetry is attributed to the stage at `currentStageIndex` when its status is `running`. Messages arriving outside a running stage — e.g. during `paused` gates or after completion — are dropped.
 - If opencode includes an assistant-message `agent`, telemetry is only counted when it matches the running stage's agent.
-- If a stage has an agent model override, Lattice seeds telemetry with the configured model/provider and does not overwrite those fields with later message metadata. Token and cost counters still accumulate from opencode events.
+- If a stage has an agent model override, Lattice seeds `configuredModel` and `configuredProvider` from that override and keeps `model` and `provider` pinned to the configured values. Later message metadata is recorded separately as `observedModel` and `observedProvider`.
+- If observed message metadata differs from a configured model override, Lattice logs a warning so users can spot provider fallback or alias resolution while preserving both configured and observed values.
 - Retries accumulate onto the same stage's telemetry — they add to total cost/time, matching what a user actually paid.
 
 ## Retry Behavior
