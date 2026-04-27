@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.7.0](https://github.com/CallumVass/lattice/compare/lattice-v2.6.0...lattice-v2.7.0) (2026-04-27)
+
+
+### Features
+
+* **plugin:** add dynamic stages and safer progression ([1cd9b09](https://github.com/CallumVass/lattice/commit/1cd9b09bcd2858d2858b3ced9295dc9d0aa72197))
+
 ## [2.6.0](https://github.com/CallumVass/lattice/compare/lattice-v2.5.0...lattice-v2.6.0) (2026-04-22)
 
 
