@@ -120,6 +120,8 @@ function seedConfiguredTelemetry(
     tokensCacheWrite: stage.telemetry?.tokensCacheWrite ?? 0,
     costUSD: stage.telemetry?.costUSD ?? 0,
     messageCount: stage.telemetry?.messageCount ?? 0,
+    configuredModel: stage.telemetry?.configuredModel ?? modelOverride.modelID,
+    configuredProvider: stage.telemetry?.configuredProvider ?? modelOverride.providerID,
     model: stage.telemetry?.model ?? modelOverride.modelID,
     provider: stage.telemetry?.provider ?? modelOverride.providerID,
   };

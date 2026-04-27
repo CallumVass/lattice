@@ -251,6 +251,8 @@ describe("telemetry accumulation", () => {
       tokens: { input: 100, output: 50, reasoning: 10, cache: { read: 5, write: 2 } },
     });
     expect(first).toEqual({
+      observedModel: "anthropic/claude-opus-4",
+      observedProvider: "anthropic",
       model: "anthropic/claude-opus-4",
       provider: "anthropic",
       tokensIn: 100,
@@ -281,6 +283,8 @@ describe("telemetry accumulation", () => {
       {
         model: "deepseek-v4-pro",
         provider: "opencode-go",
+        configuredModel: "deepseek-v4-pro",
+        configuredProvider: "opencode-go",
         tokensIn: 0,
         tokensOut: 0,
         tokensReasoning: 0,
@@ -300,6 +304,10 @@ describe("telemetry accumulation", () => {
 
     expect(seeded.model).toBe("deepseek-v4-pro");
     expect(seeded.provider).toBe("opencode-go");
+    expect(seeded.configuredModel).toBe("deepseek-v4-pro");
+    expect(seeded.configuredProvider).toBe("opencode-go");
+    expect(seeded.observedModel).toBe("mimo-v2.5");
+    expect(seeded.observedProvider).toBe("opencode-go");
     expect(seeded.tokensIn).toBe(200);
     expect(seeded.messageCount).toBe(1);
   });
@@ -367,6 +375,10 @@ describe("message.updated event handling", () => {
     const telemetry = state.activeInstance?.stages[0]?.telemetry;
     expect(telemetry?.model).toBe("deepseek-v4-pro");
     expect(telemetry?.provider).toBe("opencode-go");
+    expect(telemetry?.configuredModel).toBe("deepseek-v4-pro");
+    expect(telemetry?.configuredProvider).toBe("opencode-go");
+    expect(telemetry?.observedModel).toBe("mimo-v2.5");
+    expect(telemetry?.observedProvider).toBe("opencode-go");
     expect(telemetry?.messageCount).toBe(1);
   });
 
