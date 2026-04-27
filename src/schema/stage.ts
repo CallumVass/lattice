@@ -41,6 +41,17 @@ export const postHookSchema = z.object({
 
 export type PostHook = z.infer<typeof postHookSchema>;
 
+const stageExpansionSchema = z.object({
+  /** Local project-relative JSON file that contains the expansion manifest. */
+  from: z.string().min(1),
+  /** Dot-separated path to the array inside the manifest, e.g. "slices". */
+  arrayPath: z.string().min(1).default("slices"),
+  /** Maximum number of stages this expansion may insert. */
+  maxItems: z.number().int().positive().max(50).default(8),
+  /** StageDefinition-like template rendered once for each manifest item. */
+  template: z.record(z.string(), z.unknown()),
+});
+
 export const stageDefinitionSchema = z
   .object({
     id: z.string(),
@@ -64,6 +75,12 @@ export const stageDefinitionSchema = z
      * after that, the pipeline pauses for user intervention.
      */
     postHook: postHookSchema.optional(),
+    /**
+     * Dynamically replace this placeholder with stages rendered from a local
+     * JSON manifest. Expansion happens once, when the stage becomes current,
+     * and the expanded runtime pipeline is persisted on the instance.
+     */
+    expand: stageExpansionSchema.optional(),
     /**
      * Opt this stage in as a reject-rewind target. On `reject`, lattice walks
      * upstream looking for the nearest stage with `isRewindTarget: true`. If

@@ -61,6 +61,7 @@ Tradeoff: no autocomplete, no compile-time check that `signals` matches the comp
 - `fork`: reuse the current conversation context when `true`; start a cold subtask when `false`
 - `pauseAfter`: `boolean | { prompt?: string; hardGate?: boolean }` — pause the pipeline after this stage completes. `true` renders a generic pause message; `{ prompt }` renders the given body verbatim (with `{{summary}}` / `{{reason}}` replaced by the stage's completion summary). The pause is released by `/lattice-approve`. Set `hardGate: true` to require a user-typed slash command to release — see [Hard gates](#hard-gates) below.
 - `postHook`: `{ commands: string[]; maxRetries?: number }` — shell commands to run after the stage signals completion but before advancing. On failure the agent is asked to fix it; see [`state-and-completion.md`](state-and-completion.md#post-hooks).
+- `expand`: dynamic stage expansion config — replaces this placeholder stage with stages rendered from a project-local JSON manifest when the placeholder becomes current. See [Dynamic stage expansion](#dynamic-stage-expansion).
 - `skills`: optional pinned or dynamic skill selection (see [`skills.md`](skills.md))
 - `prompt`: extra instructions appended to the stage prompt. Use this to tell the agent about pipeline-specific wiring: what output format to produce, where to write files, etc.
 - `isRewindTarget`: `boolean` — opt this stage in as the rewind destination when a downstream stage rejects. Defaults to the legacy rule (rewind to the nearest upstream stage whose agent is literally named `implementor`). See [Reject rewinds](#reject-rewinds).
@@ -161,6 +162,51 @@ stage("author-ticket", {
 ## Pipeline Composition
 
 Use `ref("<pipeline-name>")` or `{ type: "pipeline", pipeline: "<pipeline-name>" }` to inline another pipeline's stages. Nested pipelines are flattened at load time. Circular references are rejected.
+
+## Dynamic Stage Expansion
+
+Use `expand` when one planning stage writes a manifest and the next part of the pipeline should fan out into one stage per manifest item. The stage containing `expand` is only a placeholder: when it becomes the current pending stage, Lattice reads the manifest, renders the template once per item, replaces the placeholder in the active run, and persists the expanded runtime pipeline on the instance.
+
+```ts
+stage("build-slices", {
+  agent: "implementor",
+  completion: "tool_signal",
+  signals: ["complete", "blocked"],
+  expand: {
+    from: ".lattice/slices.json",
+    arrayPath: "slices",
+    maxItems: 8,
+    template: {
+      id: "build-{{index}}-{{id}}",
+      type: "stage",
+      agent: "implementor",
+      completion: "tool_signal",
+      signals: ["complete", "blocked"],
+      fork: false,
+      prompt: "Implement {{title}} using {{file}} as the slice brief.",
+    },
+  },
+});
+```
+
+Manifest example:
+
+```json
+{
+  "slices": [
+    { "index": 1, "id": "auth", "title": "Authentication", "file": ".lattice/slices/01-auth.md" }
+  ]
+}
+```
+
+Expansion details:
+
+- `from` must be a project-relative JSON path. Absolute paths and `..` segments are rejected.
+- `arrayPath` is a dot-separated path to the manifest array, such as `slices` or `plan.slices`.
+- `maxItems` is required for safety and is capped at `50` by the schema.
+- `template` is validated as a normal stage definition after rendering.
+- Template strings can reference manifest item fields with `{{field}}`. Lattice also provides `{{position}}`, a 1-based array position.
+- Rendered stage ids are normalized to lowercase kebab-case and must be unique.
 
 ## Result
 

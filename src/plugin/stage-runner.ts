@@ -1,5 +1,10 @@
 import type { EngineConfig, FlattenedPipeline, SessionProvider } from "../engine/index.js";
-import { buildStageAction, markStageRunning, resolveModelOverride } from "../engine/index.js";
+import {
+  buildStageAction,
+  expandCurrentStageIfNeeded,
+  markStageRunning,
+  resolveModelOverride,
+} from "../engine/index.js";
 import type { LatticeConfig, PipelineInstance } from "../schema/index.js";
 import { type DiscoveredSkill, type ScoringProvider, selectSkills } from "../skills/index.js";
 import type { createLogger } from "./logger.js";
@@ -41,6 +46,7 @@ export async function selectSkillsForStage(
         goal,
         agent,
         stageId,
+        stagePrompt: stageDef?.prompt,
       },
       deps.scoringProvider,
     );
@@ -62,7 +68,8 @@ export async function executeStageAction(
   pipeline: FlattenedPipeline,
   deps: StageRunnerDeps,
 ): Promise<void> {
-  const action = buildStageAction(instance, pipeline);
+  const effective = await expandCurrentStageIfNeeded(instance, pipeline, deps.engineConfig);
+  const action = buildStageAction(instance, effective);
   if (!action) return;
 
   const stageIndex = (instance.stages.findIndex((s) => s.id === action.stageId) ?? 0) + 1;
@@ -77,6 +84,7 @@ export async function executeStageAction(
 
   if (action.type === "inject") {
     await deps.sessions.injectPrompt(parentSessionId, action.agent, action.prompt, modelOverride);
+    seedConfiguredTelemetry(instance, modelOverride);
     await markStageRunning(instance, deps.engineConfig);
     deps.log.info(`${progress} Stage "${action.stageId}" (agent: ${action.agent})`);
   } else {
@@ -87,9 +95,32 @@ export async function executeStageAction(
       `${progress} Lattice: ${action.stageId}`,
       modelOverride,
     );
+    seedConfiguredTelemetry(instance, modelOverride);
     await markStageRunning(instance, deps.engineConfig);
     deps.log.info(`${progress} Subtask "${action.stageId}" (agent: ${action.agent})`);
   }
 
-  await selectSkillsForStage(parentSessionId, pipeline, action.stageId, action.agent, instance.goal, deps);
+  await selectSkillsForStage(parentSessionId, effective, action.stageId, action.agent, instance.goal, deps);
+}
+
+function seedConfiguredTelemetry(
+  instance: PipelineInstance,
+  modelOverride: ReturnType<typeof resolveModelOverride>,
+): void {
+  if (!modelOverride) return;
+
+  const stage = instance.stages[instance.currentStageIndex];
+  if (!stage) return;
+
+  stage.telemetry = {
+    tokensIn: stage.telemetry?.tokensIn ?? 0,
+    tokensOut: stage.telemetry?.tokensOut ?? 0,
+    tokensReasoning: stage.telemetry?.tokensReasoning ?? 0,
+    tokensCacheRead: stage.telemetry?.tokensCacheRead ?? 0,
+    tokensCacheWrite: stage.telemetry?.tokensCacheWrite ?? 0,
+    costUSD: stage.telemetry?.costUSD ?? 0,
+    messageCount: stage.telemetry?.messageCount ?? 0,
+    model: stage.telemetry?.model ?? modelOverride.modelID,
+    provider: stage.telemetry?.provider ?? modelOverride.providerID,
+  };
 }

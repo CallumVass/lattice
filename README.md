@@ -2,7 +2,7 @@
 
 Lattice is an [OpenCode](https://opencode.ai) plugin for running repeatable multi-agent pipelines.
 
-It is a framework — not a product with built-in pipelines. You supply the agents, skills, and pipeline definitions; Lattice handles stage orchestration, session reuse vs cold starts, skill injection, and persisted pipeline state in `.lattice/`.
+It is a framework — not a product with built-in pipelines. You supply the agents, skills, and pipeline definitions; Lattice handles stage orchestration, dynamic stage expansion, session reuse vs cold starts, skill injection, and persisted pipeline state in `.lattice/`.
 
 ## Install
 
@@ -73,7 +73,7 @@ These come from Lattice itself, independent of your pipelines:
 - `docs/what-lattice-does.md`: overview and core concepts
 - `docs/install.md`: setup and plugin registration
 - `docs/run-a-pipeline.md`: running a pipeline, pauses, retries
-- `docs/custom-pipelines.md`: authoring a pipeline
+- `docs/custom-pipelines.md`: authoring a pipeline, including dynamic stage expansion
 - `docs/configuration.md`: overriding agents, stages, and skill paths
 - `docs/skills.md`: skill discovery and selection
 - `docs/state-and-completion.md`: `.lattice/` files, completion methods, retry behavior

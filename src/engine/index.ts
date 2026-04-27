@@ -8,6 +8,8 @@ export {
   buildStageAction,
   checkStageCompletion,
   type EngineConfig,
+  effectivePipeline,
+  expandCurrentStageIfNeeded,
   markStageRunning,
   startPipeline,
 } from "./engine.js";

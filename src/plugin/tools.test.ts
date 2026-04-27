@@ -47,11 +47,16 @@ function getFlattened(registry: PipelineRegistry) {
   };
 }
 
-function deps(state: PluginState) {
+function deps(state: PluginState, overrides: Partial<ReturnType<typeof depsBase>> = {}) {
+  return { ...depsBase(state), ...overrides };
+}
+
+function depsBase(state: PluginState) {
   return {
     state,
     getFlattened: getFlattened(state.registry),
     selectSkillsForStage: vi.fn(async () => {}),
+    scheduleCurrentStage: vi.fn(async () => {}),
     log: {
       info: vi.fn(),
       warn: vi.fn(),
@@ -257,7 +262,11 @@ describe("createLatticeRetryTool", () => {
       }),
     );
 
-    const result = await createLatticeRetryTool(deps(state)).execute({ confirm: true }, undefined as never);
+    const scheduleCurrentStage = vi.fn(async () => {});
+    const result = await createLatticeRetryTool(deps(state, { scheduleCurrentStage })).execute(
+      { confirm: true },
+      undefined as never,
+    );
 
     expect(result).toBe('Retrying from stage "implement". The stage will begin automatically.');
     expect(state.activeInstance?.status).toBe("running");
@@ -275,6 +284,7 @@ describe("createLatticeRetryTool", () => {
       summary: undefined,
       verdict: undefined,
     });
+    expect(scheduleCurrentStage).toHaveBeenCalledTimes(1);
   });
 
   it("resumes a gate pause when no stage is rejected", async () => {
@@ -297,7 +307,8 @@ describe("createLatticeRetryTool", () => {
       }),
     );
 
-    const result = await createLatticeRetryTool(deps(state)).execute(
+    const scheduleCurrentStage = vi.fn(async () => {});
+    const result = await createLatticeRetryTool(deps(state, { scheduleCurrentStage })).execute(
       { confirm: true, response: "ship it" },
       undefined as never,
     );
@@ -305,6 +316,7 @@ describe("createLatticeRetryTool", () => {
     expect(result).toContain('Resuming pipeline at stage "post-comments".');
     expect(state.activeInstance?.status).toBe("running");
     expect(state.activeInstance?.pendingResponse).toBe("ship it");
+    expect(scheduleCurrentStage).toHaveBeenCalledTimes(1);
   });
 
   it("refuses to retry without confirm: true", async () => {

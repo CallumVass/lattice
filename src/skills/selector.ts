@@ -19,7 +19,7 @@ export async function selectSkills(
   ctx: SkillSelectionContext,
   provider: ScoringProvider,
 ): Promise<DiscoveredSkill[]> {
-  const { skillsConfig, defaultMax, goal, agent, stageId } = ctx;
+  const { skillsConfig, defaultMax, goal, agent, stageId, stagePrompt } = ctx;
 
   const hasPinned = (skillsConfig?.pinned?.length ?? 0) > 0;
   if (!skillsConfig?.dynamic && !hasPinned) return [];
@@ -28,7 +28,7 @@ export async function selectSkills(
   const max = skillsConfig?.max ?? defaultMax;
 
   if (skillsConfig?.dynamic && allSkills.length > 0) {
-    return scoreSkills(allSkills, { goal, agent, stageId }, pinned, max, provider);
+    return scoreSkills(allSkills, { goal, agent, stageId, stagePrompt }, pinned, max, provider);
   }
 
   return allSkills.filter((s) => pinned.includes(s.name));

@@ -4,6 +4,7 @@ export interface ScoringContext {
   goal: string;
   agent: string;
   stageId: string;
+  stagePrompt?: string;
 }
 
 /** Abstraction over LLM call for testability. */
@@ -30,11 +31,18 @@ export async function scoreSkills(
   // Build scoring prompt
   const skillList = candidates.map((s, i) => `${i + 1}. ${s.name}: ${s.description || "(no description)"}`).join("\n");
 
-  const prompt = `You are a skill selector. Given a task and a list of available skills, select the most relevant ones.
+  const prompt = `You are a skill selector. Given a pipeline stage and a list of available skills, select the most relevant ones for this specific stage.
 
-Task: ${context.goal}
+Prioritize the stage prompt and stage id over the overall goal. The overall goal is background context only.
+Do not select backend skills for frontend-only stages unless the stage explicitly touches backend/API contracts.
+Do not select frontend skills for backend-only stages unless the stage explicitly touches UI/client code.
+Prefer a small, focused set of clearly relevant skills over broad coverage.
+
+Overall goal: ${context.goal}
 Agent: ${context.agent}
 Stage: ${context.stageId}
+Stage prompt:
+${context.stagePrompt ?? "(not provided)"}
 
 Available skills:
 ${skillList}

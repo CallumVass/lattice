@@ -27,9 +27,9 @@ First source wins by skill name. Project skills override global skills.
 Stages can request:
 
 - **Pinned skills**: always included.
-- **Dynamic skills**: scored against the current goal, agent, and stage.
+- **Dynamic skills**: scored against the current goal, agent, stage id, and stage prompt.
 
-Lattice keeps pinned skills, then fills remaining slots with the highest-scoring dynamic skills up to the stage's `max`.
+Lattice keeps pinned skills, then fills remaining slots with the highest-scoring dynamic skills up to the stage's `max`. Dynamic scoring prioritizes the stage prompt and stage id over the overall pipeline goal, so generated or highly specific stages can receive narrower skills than the parent request would imply.
 
 ```ts
 stage("plan", {

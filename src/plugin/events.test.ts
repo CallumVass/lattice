@@ -48,6 +48,7 @@ function registryOf(...defs: PipelineDefinition[]): PipelineRegistry {
 interface HandlerOverrides {
   sessions?: SessionProvider;
   postHookRunner?: PostHookRunner;
+  completionSettleMs?: number;
 }
 
 function buildHandler(state: PluginState, registry: PipelineRegistry, overrides: HandlerOverrides = {}) {
@@ -73,6 +74,7 @@ function buildHandler(state: PluginState, registry: PipelineRegistry, overrides:
     scoringProvider: NO_SKILLS_PROVIDER,
     skillStore: new SkillStore(),
     log: SILENT_LOG,
+    completionSettleMs: overrides.completionSettleMs ?? 0,
     ...(overrides.postHookRunner && { postHookRunner: overrides.postHookRunner }),
   });
 }
@@ -92,6 +94,7 @@ interface AssistantInfoOverrides {
   cost?: number;
   modelID?: string;
   providerID?: string;
+  agent?: string;
 }
 
 async function fireAssistantMessage(
@@ -105,6 +108,7 @@ async function fireAssistantMessage(
       properties: {
         info: {
           role: overrides.role ?? "assistant",
+          agent: overrides.agent,
           time,
           modelID: overrides.modelID ?? "anthropic/claude-opus-4",
           providerID: overrides.providerID ?? "anthropic",
@@ -217,6 +221,7 @@ describe("session.idle pipeline progression", () => {
       scoringProvider: NO_SKILLS_PROVIDER,
       skillStore: new SkillStore(),
       log: SILENT_LOG,
+      completionSettleMs: 0,
     });
 
     await fireIdle(failingHandler);
@@ -271,6 +276,34 @@ describe("telemetry accumulation", () => {
     expect(second.model).toBe("anthropic/claude-opus-4");
   });
 
+  it("does not overwrite configured model/provider telemetry", () => {
+    const seeded = accumulateTelemetry(
+      {
+        model: "deepseek-v4-pro",
+        provider: "opencode-go",
+        tokensIn: 0,
+        tokensOut: 0,
+        tokensReasoning: 0,
+        tokensCacheRead: 0,
+        tokensCacheWrite: 0,
+        costUSD: 0,
+        messageCount: 0,
+      },
+      {
+        role: "assistant",
+        modelID: "mimo-v2.5",
+        providerID: "opencode-go",
+        cost: 0.03,
+        tokens: { input: 200, output: 80 },
+      },
+    );
+
+    expect(seeded.model).toBe("deepseek-v4-pro");
+    expect(seeded.provider).toBe("opencode-go");
+    expect(seeded.tokensIn).toBe(200);
+    expect(seeded.messageCount).toBe(1);
+  });
+
   it("treats missing token/cost fields as zero", () => {
     const t = accumulateTelemetry(undefined, { role: "assistant" });
     expect(t).toEqual({
@@ -319,6 +352,24 @@ describe("message.updated event handling", () => {
     expect(stage?.telemetry?.messageCount).toBe(1);
   });
 
+  it("seeds running stage telemetry from configured model override", async () => {
+    const registry = registryOf(oneStage);
+    const state = makeState({ agents: { planner: { model: "opencode-go/deepseek-v4-pro" } } }, registry);
+    const handler = buildHandler(state, registry);
+
+    const flat = flattenPipeline(oneStage, registry);
+    const { instance } = await startPipeline(flat, "ship it", state.engineConfig);
+    state.activeInstance = instance;
+
+    await fireIdle(handler);
+    await fireAssistantMessage(handler, { agent: "planner", modelID: "mimo-v2.5", providerID: "opencode-go" });
+
+    const telemetry = state.activeInstance?.stages[0]?.telemetry;
+    expect(telemetry?.model).toBe("deepseek-v4-pro");
+    expect(telemetry?.provider).toBe("opencode-go");
+    expect(telemetry?.messageCount).toBe(1);
+  });
+
   it("accumulates multiple messages across the stage lifetime", async () => {
     const { state, handler } = await primeRunningStage();
 
@@ -344,6 +395,14 @@ describe("message.updated event handling", () => {
     const { state, handler } = await primeRunningStage();
 
     await fireAssistantMessage(handler, { role: "user", input: 999 });
+
+    expect(state.activeInstance?.stages[0]?.telemetry).toBeUndefined();
+  });
+
+  it("ignores assistant telemetry from a different agent", async () => {
+    const { state, handler } = await primeRunningStage();
+
+    await fireAssistantMessage(handler, { agent: "different-agent", input: 999 });
 
     expect(state.activeInstance?.stages[0]?.telemetry).toBeUndefined();
   });
@@ -383,7 +442,15 @@ describe("post-hook integration", () => {
     const registry = registryOf(oneStageWithHook);
     const state = makeState({}, registry);
     const runner: PostHookRunner = vi.fn(async () => ({ ok: true }) as const);
-    const handler = buildHandler(state, registry, { postHookRunner: runner });
+    const notify = vi.fn(async () => {});
+    const injectPrompt = vi.fn<SessionProvider["injectPrompt"]>(async () => {});
+    const sessions: SessionProvider = {
+      injectPrompt,
+      injectSubtask: vi.fn(async () => {}),
+      notify,
+      getLastAssistantMessage: vi.fn(async () => ""),
+    };
+    const handler = buildHandler(state, registry, { sessions, postHookRunner: runner });
 
     const flat = flattenPipeline(oneStageWithHook, registry);
     const { instance } = await startPipeline(flat, "ship it", state.engineConfig);
@@ -396,6 +463,38 @@ describe("post-hook integration", () => {
     await clearSignal("only");
 
     expect(runner).toHaveBeenCalledOnce();
+    expect(state.activeInstance).toBeUndefined();
+    expect(notify).toHaveBeenCalledWith("session-1", expect.stringContaining('Pipeline "hooked" complete'));
+    expect(injectPrompt).not.toHaveBeenCalledWith(
+      "session-1",
+      "build",
+      expect.stringContaining('Pipeline "hooked" complete'),
+      expect.anything(),
+    );
+  });
+
+  it("reruns a passing post-hook once when source files change during the hook", async () => {
+    const registry = registryOf(oneStageWithHook);
+    const state = makeState({}, registry);
+    let calls = 0;
+    const runner: PostHookRunner = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) {
+        await writeFile(join(projectDir, "late-edit.txt"), "changed after completion");
+      }
+      return { ok: true } as const;
+    });
+    const handler = buildHandler(state, registry, { postHookRunner: runner });
+
+    const flat = flattenPipeline(oneStageWithHook, registry);
+    const { instance } = await startPipeline(flat, "ship it", state.engineConfig);
+    state.activeInstance = instance;
+
+    await fireIdle(handler); // pending → running
+    await writeSignal("only", "complete", "done");
+    await fireIdle(handler);
+
+    expect(runner).toHaveBeenCalledTimes(2);
     expect(state.activeInstance).toBeUndefined();
   });
 
