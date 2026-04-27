@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.8.0](https://github.com/CallumVass/lattice/compare/lattice-v2.7.0...lattice-v2.8.0) (2026-04-27)
+
+
+### Features
+
+* **plugin:** preserve observed telemetry metadata ([c2d2dd9](https://github.com/CallumVass/lattice/commit/c2d2dd9a4238c70fab703bfc6f96f48bff77545c))
+
 ## [2.7.0](https://github.com/CallumVass/lattice/compare/lattice-v2.6.0...lattice-v2.7.0) (2026-04-27)
 
 
