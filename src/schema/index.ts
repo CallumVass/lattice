@@ -11,3 +11,4 @@ export type {
   StageDefinition,
   StageEntry,
 } from "./stage.js";
+export { stageDefinitionSchema } from "./stage.js";

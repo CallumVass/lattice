@@ -46,6 +46,23 @@ describe("selectSkills", () => {
     expect(result.map((s) => s.name)).toEqual(["tdd"]);
   });
 
+  it("passes stagePrompt through to the scoring provider", async () => {
+    const provider: ScoringProvider = {
+      scoreSkills: vi.fn(async (prompt) => {
+        expect(prompt).toContain("frontend slice prompt");
+        return "[]";
+      }),
+    };
+
+    await selectSkills(
+      [skill("react")],
+      { ...ctx, stagePrompt: "frontend slice prompt", skillsConfig: { dynamic: true, pinned: [], max: 2 } },
+      provider,
+    );
+
+    expect(provider.scoreSkills).toHaveBeenCalledOnce();
+  });
+
   it("falls back to pins when dynamic is on but no skills were discovered", async () => {
     const provider: ScoringProvider = { scoreSkills: vi.fn(async () => "[1]") };
     const result = await selectSkills(

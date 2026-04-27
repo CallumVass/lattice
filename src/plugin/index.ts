@@ -6,7 +6,7 @@ import { createOpencodeSessionProvider, findActiveInstance, flattenPipeline, loa
 import { createOpencodeScoringProvider, scanSkills } from "../skills/index.js";
 import { createEventHandler } from "./events.js";
 import { createLogger } from "./logger.js";
-import { selectSkillsForStage } from "./stage-runner.js";
+import { executeStageAction, selectSkillsForStage } from "./stage-runner.js";
 import type { PluginState } from "./state.js";
 import { AgentTracker, buildSystemTransform, SkillStore } from "./system-transform.js";
 import {
@@ -94,7 +94,16 @@ const server: Plugin = async ({ client, directory }) => {
     return selectSkillsForStage(sessionId, flat, stageId, agent, goal, stageRunnerDeps);
   };
 
-  const toolDeps = { state, getFlattened, selectSkillsForStage: selectSkillsForActiveStage, log };
+  const scheduleCurrentStage = async () => {
+    const instance = state.activeInstance;
+    if (!instance || instance.status !== "running" || !state.parentSessionId) return;
+    const currentStage = instance.stages[instance.currentStageIndex];
+    if (!currentStage || currentStage.status !== "pending") return;
+    const flat = await getFlattened(instance.pipelineName);
+    await executeStageAction(instance, state.parentSessionId, flat, stageRunnerDeps);
+  };
+
+  const toolDeps = { state, getFlattened, selectSkillsForStage: selectSkillsForActiveStage, scheduleCurrentStage, log };
 
   return {
     tool: {

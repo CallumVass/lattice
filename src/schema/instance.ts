@@ -1,4 +1,5 @@
 import { z } from "zod/v4";
+import { stageDefinitionSchema } from "./stage.js";
 
 const stageStatusSchema = z.enum(["pending", "running", "completed", "rejected", "skipped", "failed"]);
 
@@ -51,6 +52,8 @@ const pipelineInstanceSchema = z.object({
   status: pipelineStatusSchema,
   currentStageIndex: z.number().int().min(0),
   stages: z.array(stageInstanceSchema),
+  /** Runtime-expanded stage definitions. Present after dynamic stage expansion. */
+  runtimeStages: z.array(stageDefinitionSchema).optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   /** User response supplied via /lattice-retry. Consumed by the next stage's composed prompt, then cleared. */

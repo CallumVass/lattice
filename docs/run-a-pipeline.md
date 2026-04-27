@@ -42,11 +42,11 @@ A pipeline pauses in two cases:
 - `/lattice-approve <message>` to resume with a reply injected into the next stage's prompt (useful for extra requirements or answering a question the pause raised).
 - `/lattice-abort` to stop it.
 
-`/lattice-retry` also works at a gate for backward-compat, but `/lattice-approve` is the intended verb — a gate is not a failure.
+`/lattice-retry` also works at a gate for backward-compat, but `/lattice-approve` is the intended verb — a gate is not a failure. After the gate is released, Lattice starts the next pending stage automatically.
 
 ### Rejections — `/lattice-retry` / `/lattice-proceed`
 
-For a rejected stage, `/lattice-retry` rewinds to a rewind-target stage and restarts. The target is picked in this order:
+For a rejected stage, `/lattice-retry` rewinds to a rewind-target stage and restarts it automatically. The target is picked in this order:
 
 1. The nearest upstream stage with `isRewindTarget: true`.
 2. Otherwise (backward-compat), the nearest upstream stage whose agent is literally named `implementor`.

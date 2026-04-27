@@ -85,4 +85,23 @@ describe("scoreSkills", () => {
 
     expect(result).toHaveLength(2);
   });
+
+  it("includes stage prompt and stage-local instructions in scoring prompt", async () => {
+    const provider: ScoringProvider = {
+      scoreSkills: async (prompt) => {
+        expect(prompt).toContain("Prioritize the stage prompt and stage id over the overall goal");
+        expect(prompt).toContain("Stage prompt:");
+        expect(prompt).toContain("Implement frontend generated client and booking UI");
+        return "[]";
+      },
+    };
+
+    await scoreSkills(
+      [skill("react"), skill("dotnet")],
+      { ...ctx, stagePrompt: "Implement frontend generated client and booking UI" },
+      [],
+      2,
+      provider,
+    );
+  });
 });

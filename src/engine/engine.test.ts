@@ -5,7 +5,15 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { pipeline, stage } from "../builder/index.js";
 import type { LatticeConfig } from "../schema/index.js";
 import type { EngineConfig } from "./engine.js";
-import { advancePipeline, buildStageAction, checkStageCompletion, markStageRunning, startPipeline } from "./engine.js";
+import {
+  advancePipeline,
+  buildStageAction,
+  checkStageCompletion,
+  effectivePipeline,
+  expandCurrentStageIfNeeded,
+  markStageRunning,
+  startPipeline,
+} from "./engine.js";
 import { flattenPipeline } from "./flattener.js";
 import type { PipelineRegistry } from "./loader.js";
 
@@ -140,6 +148,87 @@ describe("startPipeline + buildStageAction", () => {
 
     const result = await startPipeline(flat, "noop", engineConfig(config));
     expect(result.instance.status).toBe("completed");
+  });
+});
+
+describe("dynamic stage expansion", () => {
+  it("expands a manifest into runtime stages when current placeholder is pending", async () => {
+    await writeFile(
+      join(projectDir, "manifest.json"),
+      JSON.stringify({ slices: [{ index: 1, id: "Auth Setup", title: "Auth setup", file: "slices/01-auth.md" }] }),
+    );
+    const p = pipeline("dynamic", {
+      stages: [
+        {
+          id: "build-slices",
+          type: "stage",
+          agent: "build",
+          completion: "tool_signal",
+          signals: ["complete"],
+          fork: false,
+          pauseAfter: false,
+          isRewindTarget: false,
+          expand: {
+            from: "manifest.json",
+            arrayPath: "slices",
+            maxItems: 4,
+            template: {
+              id: "build-slice-{{index}}-{{id}}",
+              type: "stage",
+              agent: "build",
+              completion: "tool_signal",
+              signals: ["complete"],
+              fork: false,
+              prompt: "Read {{file}} for {{title}}",
+            },
+          },
+        },
+        stage("final", { agent: "build", completion: "tool_signal", signals: ["complete"] }),
+      ],
+    });
+    const flat = flattenPipeline(p, registryOf(p));
+    const { instance } = await startPipeline(flat, "ship", engineConfig());
+
+    const expanded = await expandCurrentStageIfNeeded(instance, flat, engineConfig());
+
+    expect(instance.stages.map((s) => s.id)).toEqual(["build-slice-1-auth-setup", "final"]);
+    expect(instance.runtimeStages?.map((s) => s.id)).toEqual(["build-slice-1-auth-setup", "final"]);
+    expect(expanded.stages[0]?.prompt).toBe("Read slices/01-auth.md for Auth setup");
+    expect(buildStageAction(instance, effectivePipeline(instance, flat))?.stageId).toBe("build-slice-1-auth-setup");
+  });
+
+  it("refuses manifests that exceed maxItems", async () => {
+    await writeFile(join(projectDir, "manifest.json"), JSON.stringify({ slices: [{ id: "a" }, { id: "b" }] }));
+    const p = pipeline("dynamic", {
+      stages: [
+        {
+          id: "build-slices",
+          type: "stage",
+          agent: "build",
+          completion: "tool_signal",
+          signals: ["complete"],
+          fork: false,
+          pauseAfter: false,
+          isRewindTarget: false,
+          expand: {
+            from: "manifest.json",
+            arrayPath: "slices",
+            maxItems: 1,
+            template: {
+              id: "build-{{id}}",
+              type: "stage",
+              agent: "build",
+              completion: "tool_signal",
+              signals: ["complete"],
+            },
+          },
+        },
+      ],
+    });
+    const flat = flattenPipeline(p, registryOf(p));
+    const { instance } = await startPipeline(flat, "ship", engineConfig());
+
+    await expect(expandCurrentStageIfNeeded(instance, flat, engineConfig())).rejects.toThrow("exceeding maxItems");
   });
 });
 

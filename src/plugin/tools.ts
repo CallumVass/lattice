@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ToolDefinition } from "@opencode-ai/plugin/tool";
 import { tool } from "@opencode-ai/plugin/tool";
-import { cleanSignals, saveInstance, startPipeline } from "../engine/index.js";
+import { cleanSignals, effectivePipeline, saveInstance, startPipeline } from "../engine/index.js";
 import type { PipelineInstance } from "../schema/index.js";
 import type { PluginState } from "./state.js";
 
@@ -10,6 +10,7 @@ interface ToolDeps {
   state: PluginState;
   getFlattened: (name: string) => Promise<ReturnType<typeof import("../engine/flattener.js").flattenPipeline>>;
   selectSkillsForStage: (sessionId: string, stageId: string, agent: string, goal: string) => Promise<void>;
+  scheduleCurrentStage?: () => Promise<void>;
   log: Logger;
 }
 
@@ -29,6 +30,7 @@ async function releaseGatePause(
   projectDir: string,
   log: Logger,
   toolName: "lattice_retry" | "lattice_approve",
+  scheduleCurrentStage?: () => Promise<void>,
 ): Promise<string> {
   if (instance.hardGated === true) {
     const token = instance.userRetryToken;
@@ -54,6 +56,7 @@ async function releaseGatePause(
   await saveInstance(projectDir, instance);
   const resumingId = instance.stages[instance.currentStageIndex]?.id ?? "?";
   log.info(`Resuming from gate at stage "${resumingId}" (${toolName})`);
+  await scheduleCurrentStage?.();
   return `Resuming pipeline at stage "${resumingId}".`;
 }
 
@@ -189,7 +192,7 @@ export function createLatticeRetryTool(deps: ToolDeps): ToolDefinition {
         ),
     },
     async execute(args) {
-      const { state, log, getFlattened } = deps;
+      const { state, log, getFlattened, scheduleCurrentStage } = deps;
       if (args.confirm !== true) {
         return "lattice_retry requires confirm: true. This tool is user-initiated only — do not call it in response to a pipeline status message. The user will decide whether to retry.";
       }
@@ -201,13 +204,20 @@ export function createLatticeRetryTool(deps: ToolDeps): ToolDefinition {
 
       // Resume from an approval gate (pauseAfter): no rejected stage.
       if (rejectedIndex === -1) {
-        return releaseGatePause(instance, response, state.engineConfig.projectDir, log, "lattice_retry");
+        return releaseGatePause(
+          instance,
+          response,
+          state.engineConfig.projectDir,
+          log,
+          "lattice_retry",
+          scheduleCurrentStage,
+        );
       }
 
       // Reject-rewind: look for an explicitly-marked rewind target upstream.
       // If none marked, fall back to the legacy literal-`implementor`-name
       // rule (ADR 024) for backward compatibility.
-      const flat = await getFlattened(instance.pipelineName);
+      const flat = effectivePipeline(instance, await getFlattened(instance.pipelineName));
       let retryIndex = -1;
       for (let i = rejectedIndex - 1; i >= 0; i--) {
         if (flat.stages[i]?.isRewindTarget) {
@@ -270,6 +280,7 @@ export function createLatticeRetryTool(deps: ToolDeps): ToolDefinition {
       await saveInstance(state.engineConfig.projectDir, instance);
 
       log.info(`Retrying from stage "${instance.stages[retryIndex]?.id}"`);
+      await scheduleCurrentStage?.();
       return `Retrying from stage "${instance.stages[retryIndex]?.id}". The stage will begin automatically.`;
     },
   });
@@ -379,7 +390,7 @@ export function createLatticeApproveTool(deps: ToolDeps): ToolDefinition {
         ),
     },
     async execute(args) {
-      const { state, log } = deps;
+      const { state, log, scheduleCurrentStage } = deps;
       if (args.confirm !== true) {
         return "lattice_approve requires confirm: true. This tool is user-initiated only — do not call it in response to a pipeline status message.";
       }
@@ -392,7 +403,14 @@ export function createLatticeApproveTool(deps: ToolDeps): ToolDefinition {
       }
 
       const response = args.response?.trim() || undefined;
-      return releaseGatePause(instance, response, state.engineConfig.projectDir, log, "lattice_approve");
+      return releaseGatePause(
+        instance,
+        response,
+        state.engineConfig.projectDir,
+        log,
+        "lattice_approve",
+        scheduleCurrentStage,
+      );
     },
   });
 }

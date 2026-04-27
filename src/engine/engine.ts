@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { LatticeConfig, PipelineInstance } from "../schema/index.js";
+import type { LatticeConfig, PipelineInstance, StageDefinition } from "../schema/index.js";
+import { stageDefinitionSchema } from "../schema/index.js";
 import type { CompletionResult } from "./completion.js";
 import { checkCompletion } from "./completion.js";
 import type { FlattenedPipeline } from "./flattener.js";
@@ -10,6 +12,99 @@ import { composePrompt } from "./prompt.js";
 export interface EngineConfig {
   projectDir: string;
   latticeConfig: LatticeConfig;
+}
+
+export function effectivePipeline(instance: PipelineInstance, pipeline: FlattenedPipeline): FlattenedPipeline {
+  return instance.runtimeStages ? { ...pipeline, stages: instance.runtimeStages } : pipeline;
+}
+
+export async function expandCurrentStageIfNeeded(
+  instance: PipelineInstance,
+  pipeline: FlattenedPipeline,
+  config: EngineConfig,
+): Promise<FlattenedPipeline> {
+  const effective = effectivePipeline(instance, pipeline);
+  const stageDef = effective.stages[instance.currentStageIndex];
+  const stageInst = instance.stages[instance.currentStageIndex];
+  if (!stageDef?.expand || !stageInst || stageInst.status !== "pending") return effective;
+
+  const expanded = await renderExpandedStages(stageDef, config.projectDir);
+  const nextStages = [...effective.stages];
+  nextStages.splice(instance.currentStageIndex, 1, ...expanded);
+
+  const nextInstances = [...instance.stages];
+  nextInstances.splice(
+    instance.currentStageIndex,
+    1,
+    ...expanded.map((stage) => ({ id: stage.id, agent: stage.agent, status: "pending" as const })),
+  );
+
+  instance.stages = nextInstances;
+  instance.runtimeStages = nextStages;
+  instance.updatedAt = new Date().toISOString();
+  await saveInstance(config.projectDir, instance);
+
+  return { ...effective, stages: nextStages };
+}
+
+async function renderExpandedStages(stageDef: StageDefinition, projectDir: string): Promise<StageDefinition[]> {
+  const expansion = stageDef.expand;
+  if (!expansion) return [stageDef];
+
+  if (expansion.from.startsWith("/") || expansion.from.split(/[\\/]/).includes("..")) {
+    throw new Error(`Dynamic stage "${stageDef.id}" has unsafe manifest path: ${expansion.from}`);
+  }
+
+  const manifest = JSON.parse(await readFile(join(projectDir, expansion.from), "utf8")) as unknown;
+  const items = readArrayPath(manifest, expansion.arrayPath);
+  if (items.length > expansion.maxItems) {
+    throw new Error(
+      `Dynamic stage "${stageDef.id}" manifest has ${items.length} items, exceeding maxItems ${expansion.maxItems}`,
+    );
+  }
+
+  const seen = new Set<string>();
+  return items.map((item, position) => {
+    if (!item || typeof item !== "object") {
+      throw new Error(`Dynamic stage "${stageDef.id}" item ${position + 1} is not an object`);
+    }
+    const rendered = renderTemplateValue(expansion.template, {
+      ...(item as Record<string, unknown>),
+      position: position + 1,
+    });
+    const parsed = stageDefinitionSchema.parse(rendered);
+    const safeId = sanitizeStageId(parsed.id);
+    if (seen.has(safeId)) throw new Error(`Dynamic stage "${stageDef.id}" produced duplicate stage id: ${safeId}`);
+    seen.add(safeId);
+    return { ...parsed, id: safeId, expand: undefined };
+  });
+}
+
+function readArrayPath(value: unknown, path: string): unknown[] {
+  let current = value;
+  for (const part of path.split(".")) {
+    if (!current || typeof current !== "object") throw new Error(`Manifest path "${path}" does not exist`);
+    current = (current as Record<string, unknown>)[part];
+  }
+  if (!Array.isArray(current)) throw new Error(`Manifest path "${path}" is not an array`);
+  return current;
+}
+
+function renderTemplateValue(value: unknown, item: Record<string, unknown>): unknown {
+  if (typeof value === "string")
+    return value.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_, key: string) => String(item[key] ?? ""));
+  if (Array.isArray(value)) return value.map((entry) => renderTemplateValue(entry, item));
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, renderTemplateValue(entry, item)]));
+}
+
+function sanitizeStageId(id: string): string {
+  const sanitized = id
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!sanitized) throw new Error(`Dynamic stage produced an empty sanitized id from "${id}"`);
+  return sanitized;
 }
 
 interface EngineResult {

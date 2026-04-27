@@ -6,6 +6,7 @@ import {
   checkStageCompletion,
   cleanBlockedFile,
   cleanSignals,
+  effectivePipeline,
   type FlattenedPipeline,
   resolveModelOverride,
   type SessionProvider,
@@ -22,11 +23,12 @@ import {
   pauseMessage,
   postHookPauseMessage,
 } from "./notifications.js";
-import { type PostHookRunner, runPostHook } from "./post-hook.js";
+import { type PostHookRunner, runPostHook, waitForWorkspaceSettled } from "./post-hook.js";
 import { executeStageAction, type StageRunnerDeps } from "./stage-runner.js";
 
 interface AssistantMessageInfo {
   role?: string;
+  agent?: string;
   modelID?: string;
   providerID?: string;
   cost?: number;
@@ -51,8 +53,8 @@ export function accumulateTelemetry(existing: StageTelemetry | undefined, info: 
   };
   return {
     ...base,
-    model: info.modelID ?? base.model,
-    provider: info.providerID ?? base.provider,
+    model: base.model ?? info.modelID,
+    provider: base.provider ?? info.providerID,
     tokensIn: base.tokensIn + (info.tokens?.input ?? 0),
     tokensOut: base.tokensOut + (info.tokens?.output ?? 0),
     tokensReasoning: base.tokensReasoning + (info.tokens?.reasoning ?? 0),
@@ -74,6 +76,14 @@ interface EventHandlerDeps extends StageRunnerDeps {
   log: Logger;
   /** Overridable for tests. Defaults to the real shell runner. */
   postHookRunner?: PostHookRunner;
+  /** Quiet window before/after completion hooks. Defaults to LATTICE_COMPLETION_SETTLE_MS or 5000ms. */
+  completionSettleMs?: number;
+}
+
+function completionSettleMs(deps: EventHandlerDeps): number {
+  if (deps.completionSettleMs !== undefined) return deps.completionSettleMs;
+  const configured = Number(process.env.LATTICE_COMPLETION_SETTLE_MS ?? "5000");
+  return Number.isFinite(configured) && configured >= 0 ? configured : 5000;
 }
 
 function postHookFeedbackPrompt(command: string, output: string): string {
@@ -104,6 +114,12 @@ async function runPostHookForStage(
   const runner = deps.postHookRunner ?? runPostHook;
   const projectDir = deps.state.engineConfig.projectDir;
   const parentSessionId = deps.state.parentSessionId;
+  const settleMs = completionSettleMs(deps);
+
+  const beforeHook = await waitForWorkspaceSettled({ cwd: projectDir, quietMs: settleMs });
+  if (!beforeHook.settled) {
+    deps.log.warn(`Workspace did not settle before post-hook for "${stageId}"; running hook against latest files`);
+  }
 
   // Surface a start notification so the user sees why the pipeline has gone
   // quiet — without this, post-hooks (dotnet build, tests, cdk synth) can
@@ -122,7 +138,7 @@ async function runPostHookForStage(
       .catch(() => {});
   }
 
-  const result = await runner({
+  let result = await runner({
     commands: postHook.commands,
     cwd: projectDir,
     onCommandStart: async (command, index, total) => {
@@ -134,6 +150,28 @@ async function runPostHookForStage(
       deps.log.info(`Post-hook [${index + 1}/${total}] for "${stageId}": ${command}`);
     },
   });
+
+  if (result.ok) {
+    const afterHook = await waitForWorkspaceSettled({ cwd: projectDir, quietMs: settleMs });
+    if (!afterHook.settled) {
+      deps.log.warn(`Workspace did not settle after post-hook for "${stageId}"; re-running hook once`);
+    }
+    if (afterHook.latestMtimeMs > beforeHook.latestMtimeMs) {
+      deps.log.warn(`Workspace changed during/after post-hook for "${stageId}"; re-running hook once`);
+      result = await runner({
+        commands: postHook.commands,
+        cwd: projectDir,
+        onCommandStart: async (command, index, total) => {
+          if (parentSessionId) {
+            await deps.sessions
+              .notify(parentSessionId, `**Lattice:** recheck [${index + 1}/${total}] \`${command}\``)
+              .catch(() => {});
+          }
+          deps.log.info(`Post-hook recheck [${index + 1}/${total}] for "${stageId}": ${command}`);
+        },
+      });
+    }
+  }
 
   if (result.ok) {
     if (parentSessionId) {
@@ -223,6 +261,7 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
       if (!instance || instance.status !== "running") return;
       const stage = instance.stages[instance.currentStageIndex];
       if (!stage || stage.status !== "running") return;
+      if (info.agent && info.agent !== stage.agent) return;
 
       stage.telemetry = accumulateTelemetry(stage.telemetry, info);
       instance.updatedAt = new Date().toISOString();
@@ -249,11 +288,13 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
       const currentStage = instance.stages[instance.currentStageIndex];
       if (!currentStage) return;
 
-      const flat = await deps.getFlattened(instance.pipelineName);
+      const staticFlat = await deps.getFlattened(instance.pipelineName);
+      let flat = effectivePipeline(instance, staticFlat);
 
       if (currentStage.status === "pending") {
         if (deps.state.parentSessionId) {
-          await executeStageAction(instance, deps.state.parentSessionId, flat, deps);
+          await executeStageAction(instance, deps.state.parentSessionId, staticFlat, deps);
+          flat = effectivePipeline(instance, staticFlat);
         }
         return;
       }
@@ -321,12 +362,7 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
         deps.log.info(`Pipeline "${instance.pipelineName}" completed`);
 
         if (deps.state.parentSessionId) {
-          await deps.sessions.injectPrompt(
-            deps.state.parentSessionId,
-            "build",
-            completionMessage(result.instance),
-            buildModel,
-          );
+          await deps.sessions.notify(deps.state.parentSessionId, completionMessage(result.instance)).catch(() => {});
         }
 
         deps.state.activeInstance = undefined;
