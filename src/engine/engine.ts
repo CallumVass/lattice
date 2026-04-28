@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { LatticeConfig, PipelineInstance, StageDefinition } from "../schema/index.js";
+import type { LatticeConfig, PipelineInstance, PipelinePause, StageDefinition } from "../schema/index.js";
 import { stageDefinitionSchema } from "../schema/index.js";
 import type { CompletionResult } from "./completion.js";
 import { checkCompletion } from "./completion.js";
@@ -131,14 +131,8 @@ function sanitizeStageId(id: string): string {
 
 interface EngineResult {
   instance: PipelineInstance;
-  /** Set when a stage rejected/blocked — review loop semantics. */
-  pauseReason?: string;
-  /** Set when a stage completed but requires user approval before advancing. */
-  gateReason?: string;
-  /** Rendered custom pause body from the completed stage's `pauseAfter.prompt`, if provided. */
-  customGatePrompt?: string;
-  /** True when the gate was `pauseAfter: { hardGate: true }` — requires a user-typed /lattice-retry to release. */
-  hardGate?: boolean;
+  /** Set when the pipeline transitions to paused. */
+  pause?: PipelinePause;
   /** Non-fatal diagnostics the plugin should log — e.g. an agent signalled outside its declared signals. */
   diagnostics?: string[];
 }
@@ -210,13 +204,13 @@ export function buildStageAction(instance: PipelineInstance, pipeline: Flattened
     goal: instance.goal,
     completedStages,
     currentStage: stageDef,
-    pendingResponse: instance.pendingResponse,
+    resumeContext: instance.resumeContext,
   });
 
-  // fork: true → inject into main session (agent switching, context carries through)
-  // fork: false → subtask (cold start, visible sub-agent, adversarial independence)
+  // shared → inject into main session (agent switching, context carries through)
+  // isolated → subtask (cold start, visible sub-agent, adversarial independence)
   return {
-    type: stageDef.fork ? "inject" : "subtask",
+    type: stageDef.context === "shared" ? "inject" : "subtask",
     agent: stageDef.agent,
     prompt,
     stageId: stageDef.id,
@@ -238,7 +232,7 @@ export async function markStageRunning(
     stageInstance.sessionId = childSessionId;
   }
   // Response has now been delivered via the composed prompt — clear so later stages don't re-receive it.
-  instance.pendingResponse = undefined;
+  instance.resumeContext = undefined;
   instance.updatedAt = new Date().toISOString();
   await saveInstance(config.projectDir, instance);
 }
@@ -281,7 +275,7 @@ export async function advancePipeline(
   }
 
   const diagnostics: string[] = [];
-  if (currentStageDef?.completion === "tool_signal" && completionResult.signal && currentStageDef.signals) {
+  if (currentStageDef?.completion === "signal" && completionResult.signal && currentStageDef.signals) {
     if (!currentStageDef.signals.includes(completionResult.signal)) {
       diagnostics.push(
         `Stage "${currentStage.id}" signalled "${completionResult.signal}" but its declared signals are: ${currentStageDef.signals.join(", ")}. Proceeding with the signal as given.`,
@@ -289,19 +283,25 @@ export async function advancePipeline(
     }
   }
 
-  const shouldReject = completionResult.verdict === "reject" || completionResult.verdict === "blocked";
+  const shouldReject = completionResult.verdict === "fail" || completionResult.verdict === "blocked";
   currentStage.status = shouldReject ? "rejected" : "completed";
   currentStage.completedAt = new Date().toISOString();
   currentStage.summary = completionResult.summary;
   currentStage.verdict = completionResult.verdict;
 
   if (shouldReject) {
+    const pause: PipelinePause = {
+      kind: completionResult.verdict === "blocked" ? "blocked" : "rejection",
+      stageId: currentStage.id,
+      reason: `Stage "${currentStage.id}" ${completionResult.verdict}. ${completionResult.summary ?? ""}`.trim(),
+    };
     instance.status = "paused";
+    instance.pause = pause;
     instance.updatedAt = new Date().toISOString();
     await saveInstance(config.projectDir, instance);
     return {
       instance,
-      pauseReason: `Stage "${currentStage.id}" ${completionResult.verdict}. ${completionResult.summary ?? ""}`.trim(),
+      pause,
       ...(diagnostics.length > 0 && { diagnostics }),
     };
   }
@@ -313,6 +313,7 @@ export async function advancePipeline(
 
   if (nextIndex >= instance.stages.length) {
     instance.status = "completed";
+    instance.pause = undefined;
     instance.updatedAt = new Date().toISOString();
     await saveInstance(config.projectDir, instance);
     return { instance, ...(diagnostics.length > 0 && { diagnostics }) };
@@ -328,10 +329,6 @@ export async function advancePipeline(
 
     const pauseConfig = currentStageDef.pauseAfter;
     const isObjectConfig = typeof pauseConfig === "object";
-    const hardGate = isObjectConfig && pauseConfig.hardGate === true;
-    instance.hardGated = hardGate ? true : undefined;
-
-    await saveInstance(config.projectDir, instance);
 
     const customPromptTemplate = isObjectConfig ? pauseConfig.prompt : undefined;
     const customPrompt = customPromptTemplate
@@ -340,17 +337,27 @@ export async function advancePipeline(
 
     const header = `Stage "${currentStage.id}" complete — awaiting user approval before running "${nextStageId}".`;
     const summary = currentStage.summary?.trim();
-    const gateReason = summary ? `${header}\n\n### Output from "${currentStage.id}"\n\n${summary}` : header;
+    const reason = summary ? `${header}\n\n### Output from "${currentStage.id}"\n\n${summary}` : header;
+    const pause: PipelinePause = {
+      kind: "checkpoint",
+      stageId: currentStage.id,
+      nextStageId,
+      reason,
+      ...(customPrompt && { prompt: customPrompt }),
+      requiresApproval: true,
+    };
+    instance.pause = pause;
+
+    await saveInstance(config.projectDir, instance);
 
     return {
       instance,
-      gateReason,
-      ...(customPrompt && { customGatePrompt: customPrompt }),
-      ...(hardGate && { hardGate: true }),
+      pause,
       ...(diagnostics.length > 0 && { diagnostics }),
     };
   }
 
+  instance.pause = undefined;
   instance.updatedAt = new Date().toISOString();
   await saveInstance(config.projectDir, instance);
 

@@ -4,13 +4,13 @@ interface PromptContext {
   goal: string;
   completedStages: StageInstance[];
   currentStage: StageDefinition;
-  pendingResponse?: string;
+  resumeContext?: string;
 }
 
 const SIGNAL_LINES: Record<SignalVerdict, string> = {
   complete: '`lattice_signal(status: "complete", reason: "<summary>")` — work finished successfully.',
-  approve: '`lattice_signal(status: "approve", reason: "<summary>")` — verdict: pass. The pipeline advances.',
-  reject: '`lattice_signal(status: "reject", reason: "<why>")` — verdict: fail. The pipeline pauses for user action.',
+  pass: '`lattice_signal(status: "pass", reason: "<summary>")` — verdict: pass. The pipeline advances.',
+  fail: '`lattice_signal(status: "fail", reason: "<why>")` — verdict: fail. The pipeline pauses for user action.',
   blocked:
     '`lattice_signal(status: "blocked", reason: "<why>")` — you cannot continue. The pipeline pauses for user action.',
 };
@@ -27,9 +27,9 @@ export function composePrompt(ctx: PromptContext): string {
     }
   }
 
-  if (ctx.pendingResponse) {
+  if (ctx.resumeContext) {
     parts.push(
-      `## User Response\nThe pipeline paused and the user has now replied. Treat this as the authoritative decision for this stage — act on it before doing anything else.\n\n${ctx.pendingResponse}`,
+      `## User Response\nThe pipeline paused and the user has now replied. Treat this as the authoritative decision for this stage — act on it before doing anything else.\n\n${ctx.resumeContext}`,
     );
   }
 
@@ -40,7 +40,7 @@ export function composePrompt(ctx: PromptContext): string {
     parts.push(rendered);
   }
 
-  if (ctx.currentStage.completion === "tool_signal") {
+  if (ctx.currentStage.completion === "signal") {
     const signals = ctx.currentStage.signals;
     const lines = (signals ?? ["complete"]).map((s) => `- ${SIGNAL_LINES[s]}`).join("\n");
     const one = signals?.length === 1;

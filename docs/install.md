@@ -12,6 +12,10 @@ Register the npm package directly in your project's `opencode.json`:
 
 OpenCode supports npm package extensions, so it will download the package automatically.
 
+## Minimum Versions
+
+Lattice requires an OpenCode host with the `@opencode-ai/plugin` API at `>=1.4.0`. That plugin API level provides `ToolContext.ask`, which Lattice uses for native permission prompts on sensitive `/lattice` actions.
+
 ## Bring Your Own Content
 
 Lattice ships no agents, skills, or pipelines — you author them. Lattice discovers your content from the following paths:
@@ -82,14 +86,7 @@ After building from source, point OpenCode at the built plugin file:
 
 ## Verify It Loaded
 
-Inside OpenCode, these framework commands should exist:
-
-- `/lattice-status`
-- `/lattice-abort`
-- `/lattice-approve`
-- `/lattice-retry`
-- `/lattice-proceed`
-- `/lattice-reset`
+Inside OpenCode, the `/lattice` framework command should exist. Use `/lattice status` to verify the plugin is active.
 
 Any pipeline you drop into the discovery paths also appears as a slash command with its pipeline `name`.
 

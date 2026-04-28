@@ -20,7 +20,7 @@ When a pipeline uses dynamic stage expansion, the persisted instance also record
 ## Completion Methods
 
 - `idle`: stage completes when the session goes idle.
-- `tool_signal`: completes when the agent calls `lattice_signal` with `complete`, `approve`, `reject`, or `blocked`.
+- `signal`: completes when the agent calls `lattice_signal` with one of its declared signals: `complete`, `pass`, `fail`, or `blocked`.
 
 ## Per-Stage Telemetry
 
@@ -55,56 +55,38 @@ Attribution rules:
 
 ## Retry Behavior
 
-When a stage signals `reject` or `blocked`, the pipeline becomes `paused`.
+When a stage signals `fail` or `blocked`, the pipeline becomes `paused` and records explicit pause metadata on the instance.
 
-`/lattice-retry` resets the rejected stage and every stage after it, then rewinds to a rewind-target stage:
+`/lattice retry [response]` resets the failed/blocked stage and every stage after it, then rewinds to a target stage:
 
 1. If an upstream stage has `isRewindTarget: true`, the nearest such stage is the target.
-2. Otherwise (backwards-compat), if an upstream stage's agent is literally named `implementor`, that stage is the target.
-3. Otherwise, the rejected stage itself retries.
+2. Otherwise, the failed/blocked stage itself retries.
 
-The target stage's `rewindsUsed` counter increments on each accepted rewind. If the target declares `maxRewinds: N`, `/lattice-retry` refuses once the counter reaches the cap and leaves the pipeline paused with a message pointing at `/lattice-proceed` or `/lattice-abort`. Unbounded by default — set a cap on stages where a reviewer/target non-convergence is a realistic failure mode. See [`custom-pipelines.md`](custom-pipelines.md#reject-rewinds).
+The target stage's `rewindsUsed` counter increments on each accepted rewind. If the target declares `maxRewinds: N`, `/lattice retry` refuses once the counter reaches the cap and leaves the pipeline paused with a message pointing at `/lattice accept` or `/lattice abort`. Unbounded by default — set a cap on stages where a reviewer/target non-convergence is a realistic failure mode. See [`custom-pipelines.md`](custom-pipelines.md#fail-rewinds).
 
-If no stage is rejected (the pipeline is at a `pauseAfter` gate), use `/lattice-approve` to unpause — the previous stage succeeded, this is an approval checkpoint. `/lattice-retry` also works at a gate for back-compat, but `/lattice-approve` reads better because no retry is happening. At a hard gate (`pauseAfter: { hardGate: true }`), either command only releases when a user-typed slash command is observed via opencode's command hook — orchestrator-proxied tool calls are refused. After a release, Lattice schedules the next pending stage immediately. See [`custom-pipelines.md`](custom-pipelines.md#hard-gates).
+If the pipeline is at a `pauseAfter` checkpoint, use `/lattice continue [response]` to unpause. The optional response is stored as `resumeContext`, included in the next stage prompt, then cleared when that stage starts.
 
-`/lattice-proceed [reason]` is the inverse of retry: it marks the rejected stage completed (with verdict `approve` and the optional reason appended to its summary) and advances to the next stage. Use this when you've reviewed the rejection and decided the findings are acceptable as-is.
+`/lattice accept [reason]` is the inverse of retry: it marks the failed/blocked stage completed (with verdict `pass` and the optional reason appended to its summary) and advances to the next stage. Use this when you've reviewed the failure and decided it is acceptable as-is.
 
 ## Recovering A Stuck `running` Pipeline
 
-If opencode dies or the plugin crashes while a stage is executing, the persisted instance ends up with `status: running` but no live session driving it. `/lattice-retry` and `/lattice-approve` both require `paused`, so the pipeline is wedged.
+If opencode dies or the plugin crashes while a stage is executing, the persisted instance ends up with `status: running` but no live session driving it. `/lattice retry` and `/lattice continue` both require `paused`, so the pipeline is wedged.
 
-`/lattice-reset` recovers from this: it marks the current running stage back to `pending` (clearing `sessionId`, `startedAt`, `completedAt`, `summary`, `verdict`, and `postHookRetriesUsed`) and moves the pipeline to `paused`. Completed stages are untouched. Follow up with `/lattice-retry` to restart the stuck stage from scratch, or `/lattice-abort` to throw the run away.
+`/lattice reset` recovers from this: it marks the current running stage back to `pending` (clearing `sessionId`, `startedAt`, `completedAt`, `summary`, and `verdict`) and moves the pipeline to `paused` with pause kind `stuck`. Completed stages are untouched. Follow up with `/lattice retry` to restart the stuck stage from scratch, or `/lattice abort` to throw the run away.
 
-Reset is for recovery only — it refuses if the pipeline is already `paused` (use `/lattice-retry` or `/lattice-approve`) or if there is no active pipeline.
+Reset is for recovery only — it refuses if the pipeline is already `paused` (use `/lattice retry` or `/lattice continue`) or if there is no active pipeline.
 
-## Post-Hooks
+## Verification Stages
 
-A stage can declare a `postHook` to run shell commands after it signals completion but before the pipeline advances. Use this for lint, format, and test checks that should gate handoff to the next stage.
+Lattice does not run hidden shell commands after a stage completes. If checks should gate handoff, model them as an explicit verification stage so the command output, fixes, and final signal all happen in the normal OpenCode conversation.
 
 ```ts
-stage("implement", {
-  agent: "implementor",
-  completion: "tool_signal",
+stage("verify", {
+  agent: "verifier",
+  completion: "signal",
   signals: ["complete"],
-  postHook: {
-    commands: ["npm run lint", "npm run test"],
-    maxRetries: 2,
-  },
+  prompt: "Run `npm run check`. If it fails, fix the issues and rerun it before signalling complete.",
 });
 ```
 
-Commands run sequentially in the project directory; the first non-zero exit stops the chain and its combined stdout/stderr is captured.
-
-Before running a post-hook, Lattice waits for the workspace to be quiet so late file writes are less likely to race the hook. After a passing hook, it checks the workspace again; if source files changed during or just after the hook, Lattice reruns the hook once as a recheck. Runtime/output directories such as `.git`, `.lattice`, `.opencode`, `node_modules`, `dist`, `coverage`, `bin`, and `obj` are ignored for this settling check.
-
-Set `LATTICE_COMPLETION_SETTLE_MS` to tune the quiet window. The default is `5000`; set it to `0` to disable waiting.
-
-Behaviour on failure:
-
-- The failing command's output is injected back into the same stage as a follow-up, asking the agent to fix it before handing off again. Forked stages (`fork: true`) retry via an in-session prompt; cold-subtask stages (`fork: false`) retry as a fresh subtask so the retry doesn't silently land in the parent session.
-- The signal file is cleared so the stage re-enters the normal completion loop — the agent works, re-signals, and the hook runs again.
-- After `maxRetries` follow-ups still fail, the stage is marked `rejected` with the hook output as its summary and the pipeline pauses. `/lattice-retry` resumes with the usual rewind-target semantics (see [Retry Behavior](#retry-behavior) above).
-- While the hook runs, lattice posts progress notifications (`running post-hook…`, `[1/N] <command>`, pass/fail) into the parent session so long-running checks don't look like the pipeline has hung.
-- When the whole pipeline completes, lattice posts a notification instead of injecting a new agent prompt, so completion messages don't accidentally start follow-up agent work.
-
-`maxRetries` defaults to `1`. Set to `0` to fail fast on the first hook failure.
+For reviewer-style verification, use `signals: ["pass", "fail", "blocked"]` and mark the implementation stage with `isRewindTarget: true` so `/lattice retry` returns to the work stage instead of retrying the verifier itself.

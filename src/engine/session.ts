@@ -43,7 +43,7 @@ export interface SessionProvider {
   ): Promise<void>;
   /**
    * Post a user-visible status message into a session WITHOUT triggering an
-   * LLM response. Use for progress surfaces (e.g. "running post-hooks...")
+   * LLM response. Use for progress surfaces (e.g. "running verification...")
    * so the user isn't staring at a silent terminal while the pipeline works.
    */
   notify(sessionId: string, message: string): Promise<void>;

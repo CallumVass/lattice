@@ -14,6 +14,8 @@ Register the npm package directly in `opencode.json`. OpenCode will download it:
 }
 ```
 
+Lattice requires an OpenCode host with the `@opencode-ai/plugin` API at `>=1.4.0`, which provides the native permission prompt API used for sensitive `/lattice` actions.
+
 If you are developing Lattice itself, build from source:
 
 ```bash
@@ -52,21 +54,22 @@ cd <your-project> && npm install --save-dev @callumvass/lattice   # for project 
 
 ## Framework Commands
 
-These come from Lattice itself, independent of your pipelines:
+Lattice exposes one framework command, independent of your pipelines:
 
-- `/lattice-status` — show current pipeline state
-- `/lattice-abort` — stop the active pipeline
-- `/lattice-approve [response]` — approve a pipeline paused at a `pauseAfter` gate and advance to the next stage
-- `/lattice-retry [response]` — resume a paused pipeline after a rejection (rewinds to the rewind target)
-- `/lattice-proceed [reason]` — accept a rejected stage and advance past it
-- `/lattice-reset` — recover a pipeline stuck in `running` state (e.g. opencode died mid-stage); marks the stuck stage pending and pauses the pipeline so retry/approve can pick it up
+- `/lattice status` — show current pipeline state
+- `/lattice run <pipeline> <goal>` — start a pipeline by name
+- `/lattice continue [response]` — resume a pipeline paused at a `pauseAfter` checkpoint
+- `/lattice retry [response]` — retry a failed or blocked stage, rewinding to the nearest `isRewindTarget` when configured
+- `/lattice accept [reason]` — accept a failed or blocked stage and advance past it
+- `/lattice abort` — stop the active pipeline
+- `/lattice reset` — recover a pipeline stuck in `running` state; marks the stuck stage pending and pauses the pipeline so retry can restart it
 
 ## First Use
 
 1. Author a pipeline file and drop it in one of the pipeline paths above.
 2. Make sure every agent it references exists under `agents/`, and every pinned skill exists under `skills/`.
 3. Inside OpenCode, run `/<your-pipeline-name> <goal>`.
-4. Use `/lattice-status` to watch it progress.
+4. Use `/lattice status` to watch it progress.
 
 ## Docs
 

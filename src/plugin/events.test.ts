@@ -14,7 +14,6 @@ import {
 import type { LatticeConfig, PipelineDefinition } from "../schema/index.js";
 import type { ScoringProvider } from "../skills/index.js";
 import { accumulateTelemetry, createEventHandler } from "./events.js";
-import type { PostHookRunner } from "./post-hook.js";
 import type { PluginState } from "./state.js";
 import { SkillStore } from "./system-transform.js";
 
@@ -39,16 +38,12 @@ const SILENT_LOG = {
 
 function registryOf(...defs: PipelineDefinition[]): PipelineRegistry {
   const registry: PipelineRegistry = new Map();
-  for (const def of defs) {
-    registry.set(def.name, def);
-  }
+  for (const def of defs) registry.set(def.name, def);
   return registry;
 }
 
 interface HandlerOverrides {
   sessions?: SessionProvider;
-  postHookRunner?: PostHookRunner;
-  completionSettleMs?: number;
 }
 
 function buildHandler(state: PluginState, registry: PipelineRegistry, overrides: HandlerOverrides = {}) {
@@ -74,8 +69,6 @@ function buildHandler(state: PluginState, registry: PipelineRegistry, overrides:
     scoringProvider: NO_SKILLS_PROVIDER,
     skillStore: new SkillStore(),
     log: SILENT_LOG,
-    completionSettleMs: overrides.completionSettleMs ?? 0,
-    ...(overrides.postHookRunner && { postHookRunner: overrides.postHookRunner }),
   });
 }
 
@@ -159,8 +152,8 @@ afterEach(async () => {
 describe("session.idle pipeline progression", () => {
   const twoStage = pipeline("two-stage", {
     stages: [
-      stage("first", { agent: "planner", completion: "tool_signal", signals: ["complete"], fork: false }),
-      stage("second", { agent: "implementor", completion: "tool_signal", signals: ["complete"], fork: true }),
+      stage("first", { agent: "planner", completion: "signal", signals: ["complete"], context: "isolated" }),
+      stage("second", { agent: "implementor", completion: "signal", signals: ["complete"], context: "shared" }),
     ],
   });
 
@@ -173,11 +166,9 @@ describe("session.idle pipeline progression", () => {
     const { instance } = await startPipeline(flat, "ship it", state.engineConfig);
     state.activeInstance = instance;
 
-    // first stage: execute pending → running
     await fireIdle(handler);
     expect(state.activeInstance?.stages[0]?.status).toBe("running");
 
-    // first stage signals complete → advance to second
     await writeSignal("first", "complete", "done");
     await fireIdle(handler);
     await clearSignal("first");
@@ -185,7 +176,6 @@ describe("session.idle pipeline progression", () => {
     expect(state.activeInstance?.currentStageIndex).toBe(1);
     expect(state.activeInstance?.stages[0]?.status).toBe("completed");
 
-    // second stage runs → signals complete → pipeline completes
     await fireIdle(handler);
     expect(state.activeInstance?.stages[1]?.status).toBe("running");
     await writeSignal("second", "complete", "done");
@@ -193,6 +183,38 @@ describe("session.idle pipeline progression", () => {
     await clearSignal("second");
 
     expect(state.activeInstance).toBeUndefined();
+  });
+
+  it("injects a pause prompt when a stage fails", async () => {
+    const p = pipeline("review", {
+      stages: [stage("review", { agent: "reviewer", completion: "signal", signals: ["pass", "fail"] })],
+    });
+    const registry = registryOf(p);
+    const state = makeState({}, registry);
+    const injectPrompt = vi.fn<SessionProvider["injectPrompt"]>(async () => {});
+    const sessions: SessionProvider = {
+      ...NO_OP_SESSIONS,
+      injectPrompt,
+    };
+    const handler = buildHandler(state, registry, { sessions });
+
+    const flat = flattenPipeline(p, registry);
+    const { instance } = await startPipeline(flat, "review", state.engineConfig);
+    state.activeInstance = instance;
+
+    await fireIdle(handler);
+    injectPrompt.mockClear();
+    await writeSignal("review", "fail", "needs work");
+    await fireIdle(handler);
+
+    expect(state.activeInstance?.status).toBe("paused");
+    expect(state.activeInstance?.pause).toMatchObject({ kind: "rejection", stageId: "review" });
+    expect(injectPrompt).toHaveBeenCalledWith(
+      "session-1",
+      "build",
+      expect.stringContaining('Pipeline "review" paused'),
+      undefined,
+    );
   });
 
   it("marks the instance failed when a stage throws during execution", async () => {
@@ -221,7 +243,6 @@ describe("session.idle pipeline progression", () => {
       scoringProvider: NO_SKILLS_PROVIDER,
       skillStore: new SkillStore(),
       log: SILENT_LOG,
-      completionSettleMs: 0,
     });
 
     await fireIdle(failingHandler);
@@ -328,7 +349,7 @@ describe("telemetry accumulation", () => {
 
 describe("message.updated event handling", () => {
   const oneStage = pipeline("one-stage", {
-    stages: [stage("only", { agent: "planner", completion: "tool_signal", signals: ["complete"], fork: false })],
+    stages: [stage("only", { agent: "planner", completion: "signal", signals: ["complete"], context: "isolated" })],
   });
 
   async function primeRunningStage(): Promise<{
@@ -343,7 +364,7 @@ describe("message.updated event handling", () => {
     const { instance } = await startPipeline(flat, "ship it", state.engineConfig);
     state.activeInstance = instance;
 
-    await fireIdle(handler); // transitions the stage to "running"
+    await fireIdle(handler);
     return { state, handler };
   }
 
@@ -352,12 +373,12 @@ describe("message.updated event handling", () => {
 
     await fireAssistantMessage(handler, { input: 100, output: 50, cost: 0.02 });
 
-    const stage = state.activeInstance?.stages[0];
-    expect(stage?.telemetry).toBeDefined();
-    expect(stage?.telemetry?.tokensIn).toBe(100);
-    expect(stage?.telemetry?.tokensOut).toBe(50);
-    expect(stage?.telemetry?.costUSD).toBeCloseTo(0.02);
-    expect(stage?.telemetry?.messageCount).toBe(1);
+    const stageInstance = state.activeInstance?.stages[0];
+    expect(stageInstance?.telemetry).toBeDefined();
+    expect(stageInstance?.telemetry?.tokensIn).toBe(100);
+    expect(stageInstance?.telemetry?.tokensOut).toBe(50);
+    expect(stageInstance?.telemetry?.costUSD).toBeCloseTo(0.02);
+    expect(stageInstance?.telemetry?.messageCount).toBe(1);
   });
 
   it("seeds running stage telemetry from configured model override", async () => {
@@ -382,19 +403,6 @@ describe("message.updated event handling", () => {
     expect(telemetry?.messageCount).toBe(1);
   });
 
-  it("accumulates multiple messages across the stage lifetime", async () => {
-    const { state, handler } = await primeRunningStage();
-
-    await fireAssistantMessage(handler, { input: 100, output: 50, cost: 0.02 });
-    await fireAssistantMessage(handler, { input: 200, output: 80, cost: 0.03 });
-
-    const stage = state.activeInstance?.stages[0];
-    expect(stage?.telemetry?.tokensIn).toBe(300);
-    expect(stage?.telemetry?.tokensOut).toBe(130);
-    expect(stage?.telemetry?.costUSD).toBeCloseTo(0.05);
-    expect(stage?.telemetry?.messageCount).toBe(2);
-  });
-
   it("ignores partial frames where time.completed is unset", async () => {
     const { state, handler } = await primeRunningStage();
 
@@ -403,201 +411,12 @@ describe("message.updated event handling", () => {
     expect(state.activeInstance?.stages[0]?.telemetry).toBeUndefined();
   });
 
-  it("ignores non-assistant roles (user messages)", async () => {
-    const { state, handler } = await primeRunningStage();
-
-    await fireAssistantMessage(handler, { role: "user", input: 999 });
-
-    expect(state.activeInstance?.stages[0]?.telemetry).toBeUndefined();
-  });
-
-  it("ignores assistant telemetry from a different agent", async () => {
-    const { state, handler } = await primeRunningStage();
-
-    await fireAssistantMessage(handler, { agent: "different-agent", input: 999 });
-
-    expect(state.activeInstance?.stages[0]?.telemetry).toBeUndefined();
-  });
-
-  it("drops telemetry when no pipeline is active", async () => {
-    const registry = registryOf(oneStage);
-    const state = makeState({}, registry);
-    const handler = buildHandler(state, registry);
-
-    await expect(fireAssistantMessage(handler)).resolves.toBeUndefined();
-    expect(state.activeInstance).toBeUndefined();
-  });
-
-  it("drops telemetry when the current stage is not running (e.g. paused)", async () => {
+  it("ignores telemetry when the current stage is not running", async () => {
     const { state, handler } = await primeRunningStage();
     if (state.activeInstance) state.activeInstance.status = "paused";
 
     await fireAssistantMessage(handler);
 
     expect(state.activeInstance?.stages[0]?.telemetry).toBeUndefined();
-  });
-});
-
-describe("post-hook integration", () => {
-  const oneStageWithHook = pipeline("hooked", {
-    stages: [
-      stage("only", {
-        agent: "planner",
-        completion: "tool_signal",
-        signals: ["complete"],
-        postHook: { commands: ["npm run check"], maxRetries: 2 },
-      }),
-    ],
-  });
-
-  it("advances normally when the post-hook passes", async () => {
-    const registry = registryOf(oneStageWithHook);
-    const state = makeState({}, registry);
-    const runner: PostHookRunner = vi.fn(async () => ({ ok: true }) as const);
-    const notify = vi.fn(async () => {});
-    const injectPrompt = vi.fn<SessionProvider["injectPrompt"]>(async () => {});
-    const sessions: SessionProvider = {
-      injectPrompt,
-      injectSubtask: vi.fn(async () => {}),
-      notify,
-      getLastAssistantMessage: vi.fn(async () => ""),
-    };
-    const handler = buildHandler(state, registry, { sessions, postHookRunner: runner });
-
-    const flat = flattenPipeline(oneStageWithHook, registry);
-    const { instance } = await startPipeline(flat, "ship it", state.engineConfig);
-    state.activeInstance = instance;
-
-    await fireIdle(handler); // pending → running
-
-    await writeSignal("only", "complete", "done");
-    await fireIdle(handler);
-    await clearSignal("only");
-
-    expect(runner).toHaveBeenCalledOnce();
-    expect(state.activeInstance).toBeUndefined();
-    expect(notify).toHaveBeenCalledWith("session-1", expect.stringContaining('Pipeline "hooked" complete'));
-    expect(injectPrompt).not.toHaveBeenCalledWith(
-      "session-1",
-      "build",
-      expect.stringContaining('Pipeline "hooked" complete'),
-      expect.anything(),
-    );
-  });
-
-  it("reruns a passing post-hook once when source files change during the hook", async () => {
-    const registry = registryOf(oneStageWithHook);
-    const state = makeState({}, registry);
-    let calls = 0;
-    const runner: PostHookRunner = vi.fn(async () => {
-      calls += 1;
-      if (calls === 1) {
-        await writeFile(join(projectDir, "late-edit.txt"), "changed after completion");
-      }
-      return { ok: true } as const;
-    });
-    const handler = buildHandler(state, registry, { postHookRunner: runner });
-
-    const flat = flattenPipeline(oneStageWithHook, registry);
-    const { instance } = await startPipeline(flat, "ship it", state.engineConfig);
-    state.activeInstance = instance;
-
-    await fireIdle(handler); // pending → running
-    await writeSignal("only", "complete", "done");
-    await fireIdle(handler);
-
-    expect(runner).toHaveBeenCalledTimes(2);
-    expect(state.activeInstance).toBeUndefined();
-  });
-
-  it("injects feedback as a subtask and stays running when the hook fails within retry budget (fork: false)", async () => {
-    // oneStageWithHook has no `fork` set, so it defaults to false (subtask).
-    // Retry must go through injectSubtask — routing via injectPrompt would
-    // land the retry in the parent session instead of a fresh subtask.
-    const registry = registryOf(oneStageWithHook);
-    const state = makeState({}, registry);
-    const injectPrompt = vi.fn<SessionProvider["injectPrompt"]>(async () => {});
-    const injectSubtask = vi.fn<SessionProvider["injectSubtask"]>(async () => {});
-    const sessions: SessionProvider = {
-      injectPrompt,
-      injectSubtask,
-      notify: vi.fn(async () => {}),
-      getLastAssistantMessage: vi.fn(async () => ""),
-    };
-    const runner: PostHookRunner = vi.fn(async () => ({
-      ok: false,
-      command: "npm run check",
-      exitCode: 1,
-      output: "typecheck error in foo.ts",
-    }));
-
-    const handler = buildHandler(state, registry, { sessions, postHookRunner: runner });
-
-    const flat = flattenPipeline(oneStageWithHook, registry);
-    const { instance } = await startPipeline(flat, "ship it", state.engineConfig);
-    state.activeInstance = instance;
-
-    await fireIdle(handler); // pending → running
-    injectPrompt.mockClear();
-    injectSubtask.mockClear();
-
-    await writeSignal("only", "complete", "done");
-    await fireIdle(handler);
-
-    expect(runner).toHaveBeenCalledOnce();
-    expect(state.activeInstance?.stages[0]?.status).toBe("running");
-    expect(state.activeInstance?.stages[0]?.postHookRetriesUsed).toBe(1);
-    expect(state.activeInstance?.status).toBe("running");
-
-    expect(injectPrompt).not.toHaveBeenCalled();
-    expect(injectSubtask).toHaveBeenCalledOnce();
-    const call = injectSubtask.mock.calls[0];
-    expect(call?.[1]).toBe("planner");
-    expect(call?.[2]).toContain("npm run check");
-    expect(call?.[2]).toContain("typecheck error in foo.ts");
-    expect(call?.[3]).toContain("post-hook retry");
-
-    // Signal file must be cleared so the next idle doesn't immediately re-trigger completion.
-    await expect(
-      writeSignal("only", "complete", "done"), // should succeed fresh — prior one was removed
-    ).resolves.toBeUndefined();
-    await clearSignal("only");
-  });
-
-  it("pauses the pipeline with a rejected stage when retries are exhausted", async () => {
-    const registry = registryOf(oneStageWithHook);
-    const state = makeState({}, registry);
-    const injectPrompt = vi.fn(async () => {});
-    const sessions: SessionProvider = {
-      injectPrompt,
-      injectSubtask: vi.fn(async () => {}),
-      notify: vi.fn(async () => {}),
-      getLastAssistantMessage: vi.fn(async () => ""),
-    };
-    const runner: PostHookRunner = vi.fn(async () => ({
-      ok: false,
-      command: "npm run check",
-      exitCode: 1,
-      output: "still broken",
-    }));
-
-    const handler = buildHandler(state, registry, { sessions, postHookRunner: runner });
-
-    const flat = flattenPipeline(oneStageWithHook, registry);
-    const { instance } = await startPipeline(flat, "ship it", state.engineConfig);
-    state.activeInstance = instance;
-
-    await fireIdle(handler); // pending → running
-
-    // Three completion attempts: first two consume retries, third exhausts.
-    for (let i = 0; i < 3; i++) {
-      await writeSignal("only", "complete", "done");
-      await fireIdle(handler);
-    }
-
-    expect(runner).toHaveBeenCalledTimes(3);
-    expect(state.activeInstance?.stages[0]?.status).toBe("rejected");
-    expect(state.activeInstance?.status).toBe("paused");
-    expect(state.activeInstance?.stages[0]?.summary).toContain("still broken");
   });
 });

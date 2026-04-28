@@ -33,37 +33,37 @@ describe("idle", () => {
   });
 });
 
-describe("tool_signal", () => {
+describe("signal", () => {
   it("incomplete when no signal file", async () => {
-    const result = await checkCompletion("tool_signal", ctx());
+    const result = await checkCompletion("signal", ctx());
     expect(result.complete).toBe(false);
   });
 
-  it("approve signal", async () => {
-    await writeFile(join(signalsDir, "test-stage.json"), JSON.stringify({ status: "approve", reason: "LGTM" }));
-    const result = await checkCompletion("tool_signal", ctx());
+  it("pass signal", async () => {
+    await writeFile(join(signalsDir, "test-stage.json"), JSON.stringify({ status: "pass", reason: "LGTM" }));
+    const result = await checkCompletion("signal", ctx());
     expect(result.complete).toBe(true);
-    expect(result.verdict).toBe("approve");
+    expect(result.verdict).toBe("pass");
     expect(result.summary).toBe("LGTM");
   });
 
-  it("reject signal", async () => {
-    await writeFile(join(signalsDir, "test-stage.json"), JSON.stringify({ status: "reject", reason: "2 issues" }));
-    const result = await checkCompletion("tool_signal", ctx());
+  it("fail signal", async () => {
+    await writeFile(join(signalsDir, "test-stage.json"), JSON.stringify({ status: "fail", reason: "2 issues" }));
+    const result = await checkCompletion("signal", ctx());
     expect(result.complete).toBe(true);
-    expect(result.verdict).toBe("reject");
+    expect(result.verdict).toBe("fail");
   });
 
   it("blocked signal", async () => {
     await writeFile(join(signalsDir, "test-stage.json"), JSON.stringify({ status: "blocked", reason: "Missing dep" }));
-    const result = await checkCompletion("tool_signal", ctx());
+    const result = await checkCompletion("signal", ctx());
     expect(result.complete).toBe(true);
     expect(result.verdict).toBe("blocked");
   });
 
   it("complete signal", async () => {
     await writeFile(join(signalsDir, "test-stage.json"), JSON.stringify({ status: "complete" }));
-    const result = await checkCompletion("tool_signal", ctx());
+    const result = await checkCompletion("signal", ctx());
     expect(result.complete).toBe(true);
     expect(result.verdict).toBeUndefined();
   });

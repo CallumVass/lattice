@@ -6,23 +6,13 @@ import { pipeline, stage } from "../builder/index.js";
 import { type FlattenedPipeline, flattenPipeline, type PipelineRegistry } from "../engine/index.js";
 import type { PipelineInstance } from "../schema/index.js";
 import type { PluginState } from "./state.js";
-import {
-  createLatticeAbortTool,
-  createLatticeApproveTool,
-  createLatticeResetTool,
-  createLatticeRetryTool,
-  createLatticeRunTool,
-  createLatticeSignalTool,
-  createLatticeStatusTool,
-} from "./tools.js";
+import { createLatticeControlTool, createLatticeSignalTool } from "./tools.js";
 
 let projectDir: string;
 
 function registryOf(...defs: ReturnType<typeof pipeline>[]): PipelineRegistry {
   const registry: PipelineRegistry = new Map();
-  for (const def of defs) {
-    registry.set(def.name, def);
-  }
+  for (const def of defs) registry.set(def.name, def);
   return registry;
 }
 
@@ -79,8 +69,12 @@ function runningInstance(overrides: Partial<PipelineInstance> = {}): PipelineIns
   };
 }
 
+function toolContext(overrides: Record<string, unknown> = {}) {
+  return { sessionID: "session-1", agent: "planner", ...overrides } as never;
+}
+
 beforeEach(async () => {
-  projectDir = join(tmpdir(), `lattice-tools-${Date.now()}`);
+  projectDir = join(tmpdir(), `lattice-tools-${Date.now()}-${Math.random()}`);
   await mkdir(projectDir, { recursive: true });
 });
 
@@ -88,17 +82,18 @@ afterEach(async () => {
   await rm(projectDir, { recursive: true, force: true });
 });
 
-describe("createLatticeRunTool", () => {
+describe("createLatticeControlTool", () => {
   it("starts a known pipeline and persists the active instance", async () => {
     const definition = pipeline("review", {
-      stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal", signals: ["complete"] })],
+      stages: [stage("code-review", { agent: "code-reviewer", completion: "signal", signals: ["complete"] })],
     });
     const registry = registryOf(definition);
     const state = makeState(registry);
 
-    const result = await createLatticeRunTool(deps(state)).execute({ pipeline: "review", goal: "Review PR #12" }, {
-      sessionID: "session-1",
-    } as never);
+    const result = await createLatticeControlTool(deps(state)).execute(
+      { action: "run", pipeline: "review", goal: "Review PR #12" },
+      toolContext(),
+    );
 
     expect(result).toContain('Pipeline "review" started.');
     expect(state.parentSessionId).toBe("session-1");
@@ -117,53 +112,40 @@ describe("createLatticeRunTool", () => {
 
   it("rejects concurrent active pipelines", async () => {
     const definition = pipeline("review", {
-      stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal", signals: ["complete"] })],
+      stages: [stage("code-review", { agent: "code-reviewer", completion: "signal", signals: ["complete"] })],
     });
     const registry = registryOf(definition);
     const state = makeState(registry, runningInstance({ pipelineName: "review", status: "paused" }));
 
-    const result = await createLatticeRunTool(deps(state)).execute({ pipeline: "review", goal: "Review PR #13" }, {
-      sessionID: "session-1",
-    } as never);
+    const result = await createLatticeControlTool(deps(state)).execute(
+      { action: "run", pipeline: "review", goal: "Review PR #13" },
+      toolContext(),
+    );
 
-    expect(result).toBe('Pipeline "review" is paused. Use lattice_abort first.');
+    expect(result).toBe('Pipeline "review" is paused. Use `/lattice status` or `/lattice abort` first.');
   });
 
   it("reports unknown pipeline names", async () => {
     const registry = registryOf(
       pipeline("review", {
-        stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal", signals: ["complete"] })],
+        stages: [stage("code-review", { agent: "code-reviewer", completion: "signal", signals: ["complete"] })],
       }),
     );
     const state = makeState(registry);
 
-    const result = await createLatticeRunTool(deps(state)).execute({ pipeline: "ghost", goal: "" }, {
-      sessionID: "session-1",
-    } as never);
+    const result = await createLatticeControlTool(deps(state)).execute(
+      { action: "run", pipeline: "ghost", goal: "Review PR #13" },
+      toolContext(),
+    );
 
     expect(result).toContain('Unknown pipeline "ghost"');
     expect(result).toContain("Available: review");
   });
-});
 
-describe("createLatticeStatusTool", () => {
-  it("reports no active pipeline when idle", async () => {
+  it("formats status output with pause metadata", async () => {
     const registry = registryOf(
       pipeline("review", {
-        stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal", signals: ["complete"] })],
-      }),
-    );
-    const state = makeState(registry);
-
-    const result = await createLatticeStatusTool(deps(state)).execute({}, undefined as never);
-
-    expect(result).toBe("No active pipeline.");
-  });
-
-  it("formats stage markers for multiple statuses", async () => {
-    const registry = registryOf(
-      pipeline("review", {
-        stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal", signals: ["complete"] })],
+        stages: [stage("code-review", { agent: "code-reviewer", completion: "signal", signals: ["complete"] })],
       }),
     );
     const state = makeState(
@@ -171,6 +153,8 @@ describe("createLatticeStatusTool", () => {
       runningInstance({
         pipelineName: "review",
         goal: "Review PR #14",
+        status: "paused",
+        pause: { kind: "rejection", stageId: "review", reason: "needs work" },
         stages: [
           { id: "plan", agent: "planner", status: "completed", summary: "done" },
           { id: "implement", agent: "implementor", status: "running" },
@@ -180,118 +164,19 @@ describe("createLatticeStatusTool", () => {
       }),
     );
 
-    const result = await createLatticeStatusTool(deps(state)).execute({}, undefined as never);
+    const result = await createLatticeControlTool(deps(state)).execute({ action: "status" }, toolContext());
 
-    expect(result).toContain("Pipeline: review (running)");
-    expect(result).toContain("✓ plan (planner): completed — done");
+    expect(result).toContain("Pipeline: review (paused)");
+    expect(result).toContain("Pause: rejection at review - needs work");
+    expect(result).toContain("✓ plan (planner): completed - done");
     expect(result).toContain("→ implement (implementor): running");
     expect(result).toContain("- refactor (refactorer): skipped");
-    expect(result).toContain("✗ review (code-reviewer): rejected — needs work");
-  });
-});
-
-describe("createLatticeAbortTool", () => {
-  it("marks the running stage failed and cleans signals", async () => {
-    const definition = pipeline("implement", {
-      stages: [stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] })],
-    });
-    const registry = registryOf(definition);
-    const state = makeState(registry, runningInstance());
-    const signalsDir = join(projectDir, ".lattice", "signals");
-    await mkdir(signalsDir, { recursive: true });
-    await writeFile(join(signalsDir, "plan.json"), JSON.stringify({ status: "complete" }));
-
-    const result = await createLatticeAbortTool(deps(state)).execute({ confirm: true }, undefined as never);
-
-    expect(result).toBe('Pipeline "implement" aborted.');
-    expect(state.activeInstance).toBeUndefined();
-
-    const persisted = await readFile(join(projectDir, ".lattice", "state", "run-1.json"), "utf-8");
-    expect(JSON.parse(persisted)).toMatchObject({
-      status: "failed",
-      stages: [{ id: "plan", status: "failed", summary: "Aborted by user" }],
-    });
-
-    await expect(access(join(signalsDir, "plan.json"))).rejects.toThrow();
+    expect(result).toContain("✗ review (code-reviewer): rejected - needs work");
   });
 
-  it("refuses to abort without confirm: true", async () => {
-    const definition = pipeline("implement", {
-      stages: [stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] })],
-    });
-    const registry = registryOf(definition);
-    const state = makeState(registry, runningInstance());
-
-    const result = await createLatticeAbortTool(deps(state)).execute({ confirm: false }, undefined as never);
-
-    expect(result).toContain("requires confirm: true");
-    expect(state.activeInstance?.status).toBe("running");
-  });
-});
-
-describe("createLatticeRetryTool", () => {
-  it("rewinds to the nearest implementor stage", async () => {
-    const definition = pipeline("implement", {
-      stages: [stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] })],
-    });
-    const registry = registryOf(definition);
-    const state = makeState(
-      registry,
-      runningInstance({
-        status: "paused",
-        currentStageIndex: 2,
-        stages: [
-          { id: "plan", agent: "planner", status: "completed", summary: "done" },
-          {
-            id: "implement",
-            agent: "implementor",
-            status: "completed",
-            sessionId: "child-1",
-            startedAt: new Date().toISOString(),
-            completedAt: new Date().toISOString(),
-            summary: "done",
-          },
-          {
-            id: "review",
-            agent: "code-reviewer",
-            status: "rejected",
-            summary: "needs fixes",
-            verdict: "reject",
-          },
-        ],
-      }),
-    );
-
-    const scheduleCurrentStage = vi.fn(async () => {});
-    const result = await createLatticeRetryTool(deps(state, { scheduleCurrentStage })).execute(
-      { confirm: true },
-      undefined as never,
-    );
-
-    expect(result).toBe('Retrying from stage "implement". The stage will begin automatically.');
-    expect(state.activeInstance?.status).toBe("running");
-    expect(state.activeInstance?.currentStageIndex).toBe(1);
-    expect(state.activeInstance?.stages[1]).toMatchObject({
-      id: "implement",
-      status: "pending",
-      sessionId: undefined,
-      summary: undefined,
-      verdict: undefined,
-    });
-    expect(state.activeInstance?.stages[2]).toMatchObject({
-      id: "review",
-      status: "pending",
-      summary: undefined,
-      verdict: undefined,
-    });
-    expect(scheduleCurrentStage).toHaveBeenCalledTimes(1);
-  });
-
-  it("resumes a gate pause when no stage is rejected", async () => {
+  it("continues a checkpoint pause and stores resume context", async () => {
     const definition = pipeline("review", {
-      stages: [
-        stage("propose-comments", { agent: "pr-review-composer", completion: "tool_signal", signals: ["complete"] }),
-      ],
+      stages: [stage("propose-comments", { agent: "pr-review-composer", completion: "signal", signals: ["complete"] })],
     });
     const registry = registryOf(definition);
     const state = makeState(
@@ -300,6 +185,7 @@ describe("createLatticeRetryTool", () => {
         pipelineName: "review",
         status: "paused",
         currentStageIndex: 1,
+        pause: { kind: "checkpoint", stageId: "propose-comments", nextStageId: "post-comments" },
         stages: [
           { id: "propose-comments", agent: "pr-review-composer", status: "completed", summary: "ready" },
           { id: "post-comments", agent: "pr-commenter", status: "pending" },
@@ -308,49 +194,69 @@ describe("createLatticeRetryTool", () => {
     );
 
     const scheduleCurrentStage = vi.fn(async () => {});
-    const result = await createLatticeRetryTool(deps(state, { scheduleCurrentStage })).execute(
-      { confirm: true, response: "ship it" },
-      undefined as never,
+    const ask = vi.fn(async () => {});
+    const result = await createLatticeControlTool(deps(state, { scheduleCurrentStage })).execute(
+      { action: "continue", response: "ship it" },
+      toolContext({ ask }),
     );
 
-    expect(result).toContain('Resuming pipeline at stage "post-comments".');
+    expect(result).toBe('Continuing pipeline at stage "post-comments".');
+    expect(ask).not.toHaveBeenCalled();
     expect(state.activeInstance?.status).toBe("running");
-    expect(state.activeInstance?.pendingResponse).toBe("ship it");
+    expect(state.activeInstance?.pause).toBeUndefined();
+    expect(state.activeInstance?.resumeContext).toBe("ship it");
     expect(scheduleCurrentStage).toHaveBeenCalledTimes(1);
   });
 
-  it("refuses to retry without confirm: true", async () => {
-    const definition = pipeline("implement", {
-      stages: [stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] })],
+  it("asks before continuing a checkpoint that requires approval", async () => {
+    const definition = pipeline("review", {
+      stages: [stage("propose-comments", { agent: "pr-review-composer", completion: "signal", signals: ["complete"] })],
     });
     const registry = registryOf(definition);
     const state = makeState(
       registry,
       runningInstance({
+        pipelineName: "review",
         status: "paused",
-        currentStageIndex: 0,
-        stages: [{ id: "plan", agent: "planner", status: "rejected", summary: "bad" }],
+        currentStageIndex: 1,
+        pause: {
+          kind: "checkpoint",
+          stageId: "propose-comments",
+          nextStageId: "post-comments",
+          requiresApproval: true,
+        },
+        stages: [
+          { id: "propose-comments", agent: "pr-review-composer", status: "completed", summary: "ready" },
+          { id: "post-comments", agent: "pr-commenter", status: "pending" },
+        ],
       }),
     );
 
-    const result = await createLatticeRetryTool(deps(state)).execute({ confirm: false }, undefined as never);
+    const scheduleCurrentStage = vi.fn(async () => {});
+    const ask = vi.fn(async () => {});
+    const result = await createLatticeControlTool(deps(state, { scheduleCurrentStage })).execute(
+      { action: "continue", response: "ship it" },
+      toolContext({ ask }),
+    );
 
-    expect(result).toContain("requires confirm: true");
-    expect(state.activeInstance?.status).toBe("paused");
+    expect(result).toBe('Continuing pipeline at stage "post-comments".');
+    expect(ask).toHaveBeenCalledWith(expect.objectContaining({ permission: "lattice" }));
+    expect(state.activeInstance?.status).toBe("running");
+    expect(scheduleCurrentStage).toHaveBeenCalledTimes(1);
   });
 
-  it("prefers an isRewindTarget stage over the legacy implementor fallback", async () => {
+  it("rewinds to an explicitly configured retry target", async () => {
     const definition = pipeline("ship-ticket", {
       stages: [
-        stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] }),
-        stage("implement", { agent: "implementor", completion: "tool_signal", signals: ["complete"] }),
+        stage("plan", { agent: "planner", completion: "signal", signals: ["complete"] }),
+        stage("implement", { agent: "implementor", completion: "signal", signals: ["complete"] }),
         stage("author", {
           agent: "ticket-author",
-          completion: "tool_signal",
+          completion: "signal",
           signals: ["complete"],
           isRewindTarget: true,
         }),
-        stage("review", { agent: "reviewer", completion: "tool_signal", signals: ["complete", "reject"] }),
+        stage("review", { agent: "reviewer", completion: "signal", signals: ["pass", "fail"] }),
       ],
     });
     const registry = registryOf(definition);
@@ -360,6 +266,7 @@ describe("createLatticeRetryTool", () => {
         pipelineName: "ship-ticket",
         status: "paused",
         currentStageIndex: 3,
+        pause: { kind: "rejection", stageId: "review", reason: "fix" },
         stages: [
           { id: "plan", agent: "planner", status: "completed" },
           { id: "implement", agent: "implementor", status: "completed" },
@@ -369,10 +276,107 @@ describe("createLatticeRetryTool", () => {
       }),
     );
 
-    const result = await createLatticeRetryTool(deps(state)).execute({ confirm: true }, undefined as never);
+    const scheduleCurrentStage = vi.fn(async () => {});
+    const result = await createLatticeControlTool(deps(state, { scheduleCurrentStage })).execute(
+      { action: "retry", response: "try again" },
+      toolContext(),
+    );
 
     expect(result).toContain('Retrying from stage "author"');
+    expect(state.activeInstance?.status).toBe("running");
     expect(state.activeInstance?.currentStageIndex).toBe(2);
+    expect(state.activeInstance?.resumeContext).toBe("try again");
+    expect(state.activeInstance?.stages[2]).toMatchObject({ id: "author", status: "pending" });
+    expect(state.activeInstance?.stages[3]).toMatchObject({ id: "review", status: "pending" });
+    expect(scheduleCurrentStage).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not rewind to an upstream implementor without an explicit retry target", async () => {
+    const definition = pipeline("ship-ticket", {
+      stages: [
+        stage("plan", { agent: "planner", completion: "signal", signals: ["complete"] }),
+        stage("implement", { agent: "implementor", completion: "signal", signals: ["complete"] }),
+        stage("review", { agent: "reviewer", completion: "signal", signals: ["pass", "fail"] }),
+      ],
+    });
+    const registry = registryOf(definition);
+    const state = makeState(
+      registry,
+      runningInstance({
+        pipelineName: "ship-ticket",
+        status: "paused",
+        currentStageIndex: 2,
+        pause: { kind: "rejection", stageId: "review", reason: "fix" },
+        stages: [
+          { id: "plan", agent: "planner", status: "completed" },
+          { id: "implement", agent: "implementor", status: "completed" },
+          { id: "review", agent: "reviewer", status: "rejected", summary: "fix" },
+        ],
+      }),
+    );
+
+    const scheduleCurrentStage = vi.fn(async () => {});
+    const result = await createLatticeControlTool(deps(state, { scheduleCurrentStage })).execute(
+      { action: "retry", response: "try again" },
+      toolContext(),
+    );
+
+    expect(result).toContain('Retrying from stage "review"');
+    expect(state.activeInstance?.currentStageIndex).toBe(2);
+    expect(state.activeInstance?.stages[1]).toMatchObject({ id: "implement", status: "completed" });
+    expect(state.activeInstance?.stages[2]).toMatchObject({ id: "review", status: "pending" });
+    expect(scheduleCurrentStage).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses to retry a checkpoint pause", async () => {
+    const registry = registryOf(
+      pipeline("review", {
+        stages: [stage("plan", { agent: "planner", completion: "signal", signals: ["complete"] })],
+      }),
+    );
+    const state = makeState(
+      registry,
+      runningInstance({
+        status: "paused",
+        pause: { kind: "checkpoint", stageId: "plan" },
+        stages: [{ id: "plan", agent: "planner", status: "completed" }],
+      }),
+    );
+
+    const result = await createLatticeControlTool(deps(state)).execute({ action: "retry" }, toolContext());
+
+    expect(result).toBe("This pause is a checkpoint, not a failure. Use `/lattice continue [message]`.");
+    expect(state.activeInstance?.status).toBe("paused");
+  });
+
+  it("does not infer retry target from rejected stages without pause metadata", async () => {
+    const registry = registryOf(
+      pipeline("review", {
+        stages: [stage("review", { agent: "reviewer", completion: "signal", signals: ["pass", "fail"] })],
+      }),
+    );
+    const state = makeState(
+      registry,
+      runningInstance({
+        pipelineName: "review",
+        status: "paused",
+        currentStageIndex: 0,
+        stages: [{ id: "review", agent: "reviewer", status: "rejected", summary: "needs work" }],
+      }),
+    );
+
+    const scheduleCurrentStage = vi.fn(async () => {});
+    const result = await createLatticeControlTool(deps(state, { scheduleCurrentStage })).execute(
+      { action: "retry" },
+      toolContext(),
+    );
+
+    expect(result).toBe(
+      "Pipeline is paused but has no valid pause metadata. Use `/lattice status` or `/lattice abort`.",
+    );
+    expect(state.activeInstance?.status).toBe("paused");
+    expect(state.activeInstance?.stages[0]?.status).toBe("rejected");
+    expect(scheduleCurrentStage).not.toHaveBeenCalled();
   });
 
   it("refuses to rewind past maxRewinds and leaves the pipeline paused", async () => {
@@ -380,12 +384,12 @@ describe("createLatticeRetryTool", () => {
       stages: [
         stage("author", {
           agent: "ticket-author",
-          completion: "tool_signal",
+          completion: "signal",
           signals: ["complete"],
           isRewindTarget: true,
           maxRewinds: 2,
         }),
-        stage("judge", { agent: "judge", completion: "tool_signal", signals: ["approve", "reject"] }),
+        stage("judge", { agent: "judge", completion: "signal", signals: ["pass", "fail"] }),
       ],
     });
     const registry = registryOf(definition);
@@ -395,6 +399,7 @@ describe("createLatticeRetryTool", () => {
         pipelineName: "bounded",
         status: "paused",
         currentStageIndex: 1,
+        pause: { kind: "rejection", stageId: "judge", reason: "still wrong" },
         stages: [
           { id: "author", agent: "ticket-author", status: "completed", rewindsUsed: 2 },
           { id: "judge", agent: "judge", status: "rejected", summary: "still wrong" },
@@ -402,192 +407,19 @@ describe("createLatticeRetryTool", () => {
       }),
     );
 
-    const result = await createLatticeRetryTool(deps(state)).execute({ confirm: true }, undefined as never);
+    const result = await createLatticeControlTool(deps(state)).execute({ action: "retry" }, toolContext());
 
     expect(result).toContain("exhausted its rewind cap");
-    expect(result).toContain("lattice_proceed");
+    expect(result).toContain("/lattice accept");
     expect(state.activeInstance?.status).toBe("paused");
     expect(state.activeInstance?.stages[0]?.rewindsUsed).toBe(2);
   });
 
-  it("increments rewindsUsed on each accepted rewind", async () => {
-    const definition = pipeline("counting", {
-      stages: [
-        stage("author", {
-          agent: "ticket-author",
-          completion: "tool_signal",
-          signals: ["complete"],
-          isRewindTarget: true,
-          maxRewinds: 5,
-        }),
-        stage("judge", { agent: "judge", completion: "tool_signal", signals: ["approve", "reject"] }),
-      ],
-    });
-    const registry = registryOf(definition);
-    const state = makeState(
-      registry,
-      runningInstance({
-        pipelineName: "counting",
-        status: "paused",
-        currentStageIndex: 1,
-        stages: [
-          { id: "author", agent: "ticket-author", status: "completed", rewindsUsed: 1 },
-          { id: "judge", agent: "judge", status: "rejected", summary: "needs work" },
-        ],
-      }),
-    );
-
-    await createLatticeRetryTool(deps(state)).execute({ confirm: true }, undefined as never);
-
-    expect(state.activeInstance?.stages[0]?.rewindsUsed).toBe(2);
-  });
-
-  it("refuses to resume a hard-gated pause without a user-typed /lattice-retry token", async () => {
-    const definition = pipeline("approval", {
-      stages: [
-        stage("plan", {
-          agent: "planner",
-          completion: "tool_signal",
-          signals: ["complete"],
-          pauseAfter: { hardGate: true },
-        }),
-        stage("apply", { agent: "implementor", completion: "tool_signal", signals: ["complete"] }),
-      ],
-    });
-    const registry = registryOf(definition);
-    const state = makeState(
-      registry,
-      runningInstance({
-        pipelineName: "approval",
-        status: "paused",
-        currentStageIndex: 1,
-        hardGated: true,
-        stages: [
-          { id: "plan", agent: "planner", status: "completed", summary: "ready" },
-          { id: "apply", agent: "implementor", status: "pending" },
-        ],
-      }),
-    );
-
-    const result = await createLatticeRetryTool(deps(state)).execute({ confirm: true }, undefined as never);
-
-    expect(result).toContain("hard gate");
-    expect(result).toContain("/lattice-retry");
-    expect(state.activeInstance?.status).toBe("paused");
-    expect(state.activeInstance?.hardGated).toBe(true);
-  });
-
-  it("releases a hard-gated pause when a fresh userRetryToken is present", async () => {
-    const definition = pipeline("approval", {
-      stages: [
-        stage("plan", {
-          agent: "planner",
-          completion: "tool_signal",
-          signals: ["complete"],
-          pauseAfter: { hardGate: true },
-        }),
-        stage("apply", { agent: "implementor", completion: "tool_signal", signals: ["complete"] }),
-      ],
-    });
-    const registry = registryOf(definition);
-    const state = makeState(
-      registry,
-      runningInstance({
-        pipelineName: "approval",
-        status: "paused",
-        currentStageIndex: 1,
-        hardGated: true,
-        userRetryToken: { issuedAt: new Date().toISOString(), sessionId: "s1" },
-        stages: [
-          { id: "plan", agent: "planner", status: "completed", summary: "ready" },
-          { id: "apply", agent: "implementor", status: "pending" },
-        ],
-      }),
-    );
-
-    const result = await createLatticeRetryTool(deps(state)).execute({ confirm: true }, undefined as never);
-
-    expect(result).toContain('Resuming pipeline at stage "apply"');
-    expect(state.activeInstance?.status).toBe("running");
-    // Token and hardGated should be consumed on release.
-    expect(state.activeInstance?.userRetryToken).toBeUndefined();
-    expect(state.activeInstance?.hardGated).toBeUndefined();
-  });
-
-  it("refuses a stale userRetryToken (older than the TTL)", async () => {
-    const definition = pipeline("approval", {
-      stages: [
-        stage("plan", {
-          agent: "planner",
-          completion: "tool_signal",
-          signals: ["complete"],
-          pauseAfter: { hardGate: true },
-        }),
-        stage("apply", { agent: "implementor", completion: "tool_signal", signals: ["complete"] }),
-      ],
-    });
-    const registry = registryOf(definition);
-    const stale = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-    const state = makeState(
-      registry,
-      runningInstance({
-        pipelineName: "approval",
-        status: "paused",
-        currentStageIndex: 1,
-        hardGated: true,
-        userRetryToken: { issuedAt: stale },
-        stages: [
-          { id: "plan", agent: "planner", status: "completed" },
-          { id: "apply", agent: "implementor", status: "pending" },
-        ],
-      }),
-    );
-
-    const result = await createLatticeRetryTool(deps(state)).execute({ confirm: true }, undefined as never);
-
-    expect(result).toContain("hard gate");
-    expect(state.activeInstance?.status).toBe("paused");
-  });
-
-  it("does not require a token for a soft pause (backward compatibility)", async () => {
-    const definition = pipeline("soft-approval", {
-      stages: [
-        stage("plan", {
-          agent: "planner",
-          completion: "tool_signal",
-          signals: ["complete"],
-          pauseAfter: true,
-        }),
-        stage("apply", { agent: "implementor", completion: "tool_signal", signals: ["complete"] }),
-      ],
-    });
-    const registry = registryOf(definition);
-    const state = makeState(
-      registry,
-      runningInstance({
-        pipelineName: "soft-approval",
-        status: "paused",
-        currentStageIndex: 1,
-        // hardGated intentionally omitted — soft pause
-        stages: [
-          { id: "plan", agent: "planner", status: "completed" },
-          { id: "apply", agent: "implementor", status: "pending" },
-        ],
-      }),
-    );
-
-    const result = await createLatticeRetryTool(deps(state)).execute({ confirm: true }, undefined as never);
-
-    expect(result).toContain('Resuming pipeline at stage "apply"');
-    expect(state.activeInstance?.status).toBe("running");
-  });
-});
-
-describe("createLatticeApproveTool", () => {
-  it("releases a soft gate and resumes at the next stage", async () => {
+  it("accepts a failed stage and advances", async () => {
     const definition = pipeline("review", {
       stages: [
-        stage("propose-comments", { agent: "pr-review-composer", completion: "tool_signal", signals: ["complete"] }),
+        stage("review", { agent: "reviewer", completion: "signal", signals: ["pass", "fail"] }),
+        stage("follow-up", { agent: "implementor", completion: "signal", signals: ["complete"] }),
       ],
     });
     const registry = registryOf(definition);
@@ -596,149 +428,117 @@ describe("createLatticeApproveTool", () => {
       runningInstance({
         pipelineName: "review",
         status: "paused",
-        currentStageIndex: 1,
+        currentStageIndex: 0,
+        pause: { kind: "rejection", stageId: "review", reason: "known issue" },
         stages: [
-          { id: "propose-comments", agent: "pr-review-composer", status: "completed", summary: "ready" },
-          { id: "post-comments", agent: "pr-commenter", status: "pending" },
+          { id: "review", agent: "reviewer", status: "rejected", summary: "known issue" },
+          { id: "follow-up", agent: "implementor", status: "pending" },
         ],
       }),
     );
 
-    const result = await createLatticeApproveTool(deps(state)).execute(
-      { confirm: true, response: "ship it" },
-      undefined as never,
+    const scheduleCurrentStage = vi.fn(async () => {});
+    const ask = vi.fn(async () => {});
+    const result = await createLatticeControlTool(deps(state, { scheduleCurrentStage })).execute(
+      { action: "accept", reason: "intentional" },
+      toolContext({ ask }),
     );
 
-    expect(result).toContain('Resuming pipeline at stage "post-comments".');
+    expect(result).toBe('Accepted stage "review". Advancing to "follow-up".');
+    expect(ask).toHaveBeenCalledWith(expect.objectContaining({ permission: "lattice" }));
     expect(state.activeInstance?.status).toBe("running");
-    expect(state.activeInstance?.pendingResponse).toBe("ship it");
+    expect(state.activeInstance?.currentStageIndex).toBe(1);
+    expect(state.activeInstance?.pause).toBeUndefined();
+    expect(state.activeInstance?.resumeContext).toBe("intentional");
+    expect(state.activeInstance?.stages[0]).toMatchObject({ status: "completed", verdict: "pass" });
+    expect(scheduleCurrentStage).toHaveBeenCalledTimes(1);
   });
 
-  it("refuses to approve without confirm: true", async () => {
+  it("does not infer accept target from rejected stages without pause metadata", async () => {
     const registry = registryOf(
       pipeline("review", {
-        stages: [stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] })],
+        stages: [stage("review", { agent: "reviewer", completion: "signal", signals: ["pass", "fail"] })],
       }),
     );
     const state = makeState(
       registry,
       runningInstance({
-        status: "paused",
-        currentStageIndex: 1,
-        stages: [
-          { id: "plan", agent: "planner", status: "completed" },
-          { id: "apply", agent: "implementor", status: "pending" },
-        ],
-      }),
-    );
-
-    const result = await createLatticeApproveTool(deps(state)).execute({ confirm: false }, undefined as never);
-
-    expect(result).toContain("requires confirm: true");
-    expect(state.activeInstance?.status).toBe("paused");
-  });
-
-  it("refuses when the pause is a rejection, pointing at lattice_retry / lattice_proceed", async () => {
-    const registry = registryOf(
-      pipeline("review", {
-        stages: [stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] })],
-      }),
-    );
-    const state = makeState(
-      registry,
-      runningInstance({
+        pipelineName: "review",
         status: "paused",
         currentStageIndex: 0,
-        stages: [{ id: "plan", agent: "planner", status: "rejected", summary: "bad" }],
+        stages: [{ id: "review", agent: "reviewer", status: "rejected", summary: "needs work" }],
       }),
     );
 
-    const result = await createLatticeApproveTool(deps(state)).execute({ confirm: true }, undefined as never);
+    const result = await createLatticeControlTool(deps(state)).execute(
+      { action: "accept", reason: "known" },
+      toolContext(),
+    );
 
-    expect(result).toContain("rejection, not an approval gate");
-    expect(result).toContain("lattice_retry");
-    expect(result).toContain("lattice_proceed");
-    expect(state.activeInstance?.status).toBe("paused");
+    expect(result).toBe(
+      "Pipeline is paused but has no valid pause metadata. Use `/lattice status` or `/lattice abort`.",
+    );
+    expect(state.activeInstance?.stages[0]?.status).toBe("rejected");
+    expect(state.activeInstance?.stages[0]?.verdict).toBeUndefined();
   });
 
-  it("refuses a hard gate without a fresh unlock token", async () => {
+  it("refuses to accept a stuck-stage recovery pause", async () => {
     const registry = registryOf(
-      pipeline("approval", {
-        stages: [
-          stage("plan", {
-            agent: "planner",
-            completion: "tool_signal",
-            signals: ["complete"],
-            pauseAfter: { hardGate: true },
-          }),
-        ],
+      pipeline("implement", {
+        stages: [stage("apply", { agent: "implementor", completion: "signal", signals: ["complete"] })],
       }),
     );
     const state = makeState(
       registry,
       runningInstance({
-        pipelineName: "approval",
         status: "paused",
-        currentStageIndex: 1,
-        hardGated: true,
-        stages: [
-          { id: "plan", agent: "planner", status: "completed" },
-          { id: "apply", agent: "implementor", status: "pending" },
-        ],
+        pause: { kind: "stuck", stageId: "apply" },
+        stages: [{ id: "apply", agent: "implementor", status: "pending" }],
       }),
     );
 
-    const result = await createLatticeApproveTool(deps(state)).execute({ confirm: true }, undefined as never);
+    const result = await createLatticeControlTool(deps(state)).execute(
+      { action: "accept", reason: "skip" },
+      toolContext(),
+    );
 
-    expect(result).toContain("hard gate");
+    expect(result).toBe(
+      "This pause is a stuck-stage recovery. Use `/lattice retry` to restart it or `/lattice abort` to cancel.",
+    );
     expect(state.activeInstance?.status).toBe("paused");
-    expect(state.activeInstance?.hardGated).toBe(true);
   });
 
-  it("releases a hard gate when a fresh unlock token is present", async () => {
-    const registry = registryOf(
-      pipeline("approval", {
-        stages: [
-          stage("plan", {
-            agent: "planner",
-            completion: "tool_signal",
-            signals: ["complete"],
-            pauseAfter: { hardGate: true },
-          }),
-        ],
-      }),
-    );
-    const state = makeState(
-      registry,
-      runningInstance({
-        pipelineName: "approval",
-        status: "paused",
-        currentStageIndex: 1,
-        hardGated: true,
-        userRetryToken: { issuedAt: new Date().toISOString(), sessionId: "s1" },
-        stages: [
-          { id: "plan", agent: "planner", status: "completed" },
-          { id: "apply", agent: "implementor", status: "pending" },
-        ],
-      }),
-    );
+  it("aborts an active pipeline and cleans signals", async () => {
+    const definition = pipeline("implement", {
+      stages: [stage("plan", { agent: "planner", completion: "signal", signals: ["complete"] })],
+    });
+    const registry = registryOf(definition);
+    const state = makeState(registry, runningInstance());
+    const signalsDir = join(projectDir, ".lattice", "signals");
+    await mkdir(signalsDir, { recursive: true });
+    await writeFile(join(signalsDir, "plan.json"), JSON.stringify({ status: "complete" }));
 
-    const result = await createLatticeApproveTool(deps(state)).execute({ confirm: true }, undefined as never);
+    const ask = vi.fn(async () => {});
+    const result = await createLatticeControlTool(deps(state)).execute({ action: "abort" }, toolContext({ ask }));
 
-    expect(result).toContain('Resuming pipeline at stage "apply"');
-    expect(state.activeInstance?.status).toBe("running");
-    expect(state.activeInstance?.userRetryToken).toBeUndefined();
-    expect(state.activeInstance?.hardGated).toBeUndefined();
+    expect(result).toBe('Pipeline "implement" aborted.');
+    expect(ask).toHaveBeenCalledWith(expect.objectContaining({ permission: "lattice" }));
+    expect(state.activeInstance).toBeUndefined();
+
+    const persisted = await readFile(join(projectDir, ".lattice", "state", "run-1.json"), "utf-8");
+    expect(JSON.parse(persisted)).toMatchObject({
+      status: "failed",
+      stages: [{ id: "plan", status: "failed", summary: "Aborted by user" }],
+    });
+    await expect(access(join(signalsDir, "plan.json"))).rejects.toThrow();
   });
-});
 
-describe("createLatticeResetTool", () => {
   it("moves a stuck running stage back to pending and pauses the pipeline", async () => {
     const registry = registryOf(
       pipeline("implement", {
         stages: [
-          stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] }),
-          stage("apply", { agent: "implementor", completion: "tool_signal", signals: ["complete"] }),
+          stage("plan", { agent: "planner", completion: "signal", signals: ["complete"] }),
+          stage("apply", { agent: "implementor", completion: "signal", signals: ["complete"] }),
         ],
       }),
     );
@@ -756,8 +556,7 @@ describe("createLatticeResetTool", () => {
             sessionId: "child-1",
             startedAt: new Date().toISOString(),
             summary: "partial",
-            verdict: "approve",
-            postHookRetriesUsed: 1,
+            verdict: "pass",
           },
         ],
       }),
@@ -766,11 +565,12 @@ describe("createLatticeResetTool", () => {
     await mkdir(signalsDir, { recursive: true });
     await writeFile(join(signalsDir, "apply.json"), JSON.stringify({ status: "complete" }));
 
-    const result = await createLatticeResetTool(deps(state)).execute({ confirm: true }, undefined as never);
+    const result = await createLatticeControlTool(deps(state)).execute({ action: "reset" }, toolContext());
 
     expect(result).toContain("reset");
     expect(result).toContain("apply");
     expect(state.activeInstance?.status).toBe("paused");
+    expect(state.activeInstance?.pause).toMatchObject({ kind: "stuck", stageId: "apply" });
     expect(state.activeInstance?.stages[0]).toMatchObject({ id: "plan", status: "completed", summary: "done" });
     expect(state.activeInstance?.stages[1]).toMatchObject({
       id: "apply",
@@ -779,65 +579,15 @@ describe("createLatticeResetTool", () => {
       startedAt: undefined,
       summary: undefined,
       verdict: undefined,
-      postHookRetriesUsed: undefined,
     });
-
     await expect(access(join(signalsDir, "apply.json"))).rejects.toThrow();
-  });
-
-  it("refuses to reset without confirm: true", async () => {
-    const registry = registryOf(
-      pipeline("implement", {
-        stages: [stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] })],
-      }),
-    );
-    const state = makeState(registry, runningInstance());
-
-    const result = await createLatticeResetTool(deps(state)).execute({ confirm: false }, undefined as never);
-
-    expect(result).toContain("requires confirm: true");
-    expect(state.activeInstance?.status).toBe("running");
-  });
-
-  it("refuses to reset a paused pipeline (use retry/approve instead)", async () => {
-    const registry = registryOf(
-      pipeline("implement", {
-        stages: [stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] })],
-      }),
-    );
-    const state = makeState(
-      registry,
-      runningInstance({
-        status: "paused",
-        stages: [{ id: "plan", agent: "planner", status: "rejected", summary: "bad" }],
-      }),
-    );
-
-    const result = await createLatticeResetTool(deps(state)).execute({ confirm: true }, undefined as never);
-
-    expect(result).toContain("not running");
-    expect(result).toContain("lattice_retry");
-    expect(state.activeInstance?.status).toBe("paused");
-  });
-
-  it("reports no active pipeline when nothing is running", async () => {
-    const registry = registryOf(
-      pipeline("implement", {
-        stages: [stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] })],
-      }),
-    );
-    const state = makeState(registry);
-
-    const result = await createLatticeResetTool(deps(state)).execute({ confirm: true }, undefined as never);
-
-    expect(result).toBe("No active pipeline to reset.");
   });
 });
 
 describe("createLatticeSignalTool", () => {
   it("writes a signal file for the current stage", async () => {
     const definition = pipeline("review", {
-      stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal", signals: ["complete"] })],
+      stages: [stage("code-review", { agent: "code-reviewer", completion: "signal", signals: ["complete", "fail"] })],
     });
     const registry = registryOf(definition);
     const state = makeState(
@@ -849,13 +599,55 @@ describe("createLatticeSignalTool", () => {
     );
 
     const result = await createLatticeSignalTool(deps(state)).execute(
-      { status: "reject", reason: "Found 2 issues" },
-      undefined as never,
+      { status: "fail", reason: "Found 2 issues" },
+      toolContext({ agent: "code-reviewer" }),
     );
 
-    expect(result).toBe("Signal recorded: reject — Found 2 issues");
+    expect(result).toBe("Signal recorded: fail - Found 2 issues");
 
     const signal = await readFile(join(projectDir, ".lattice", "signals", "code-review.json"), "utf-8");
-    expect(JSON.parse(signal)).toEqual({ status: "reject", reason: "Found 2 issues" });
+    expect(JSON.parse(signal)).toEqual({ status: "fail", reason: "Found 2 issues" });
+  });
+
+  it("refuses signals from the wrong agent", async () => {
+    const definition = pipeline("review", {
+      stages: [stage("code-review", { agent: "code-reviewer", completion: "signal", signals: ["complete"] })],
+    });
+    const registry = registryOf(definition);
+    const state = makeState(
+      registry,
+      runningInstance({
+        pipelineName: "review",
+        stages: [{ id: "code-review", agent: "code-reviewer", status: "running" }],
+      }),
+    );
+
+    const result = await createLatticeSignalTool(deps(state)).execute(
+      { status: "complete", reason: "done" },
+      toolContext({ agent: "planner" }),
+    );
+
+    expect(result).toContain('uses agent "code-reviewer", not "planner"');
+  });
+
+  it("refuses undeclared signal statuses", async () => {
+    const definition = pipeline("review", {
+      stages: [stage("code-review", { agent: "code-reviewer", completion: "signal", signals: ["complete"] })],
+    });
+    const registry = registryOf(definition);
+    const state = makeState(
+      registry,
+      runningInstance({
+        pipelineName: "review",
+        stages: [{ id: "code-review", agent: "code-reviewer", status: "running" }],
+      }),
+    );
+
+    const result = await createLatticeSignalTool(deps(state)).execute(
+      { status: "fail", reason: "needs work" },
+      toolContext({ agent: "code-reviewer" }),
+    );
+
+    expect(result).toContain('status "fail" is not declared');
   });
 });

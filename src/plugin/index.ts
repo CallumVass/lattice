@@ -9,19 +9,33 @@ import { createLogger } from "./logger.js";
 import { executeStageAction, selectSkillsForStage } from "./stage-runner.js";
 import type { PluginState } from "./state.js";
 import { AgentTracker, buildSystemTransform, SkillStore } from "./system-transform.js";
-import {
-  createLatticeAbortTool,
-  createLatticeApproveTool,
-  createLatticeProceedTool,
-  createLatticeResetTool,
-  createLatticeRetryTool,
-  createLatticeRunTool,
-  createLatticeSignalTool,
-  createLatticeStatusTool,
-  stampUserUnlockToken,
-} from "./tools.js";
+import { createLatticeControlTool, createLatticeSignalTool } from "./tools.js";
 
 const PIPELINE_DIR_NAME = "lattice-pipelines";
+
+interface CommandRegistrationConfig {
+  command?: Record<
+    string,
+    { template: string; description?: string; agent?: string; model?: string; subtask?: boolean }
+  >;
+}
+
+export function registerLatticeCommands(config: CommandRegistrationConfig, pipelineNames: Iterable<string>): void {
+  config.command = config.command ?? {};
+  for (const name of pipelineNames) {
+    config.command[name] = {
+      description: `Run the ${name} pipeline via lattice`,
+      template: `Use the lattice_control tool with action "run", pipeline "${name}", and goal: $ARGUMENTS`,
+    };
+  }
+  config.command.lattice = {
+    description: "Run or control lattice pipelines",
+    template:
+      "Interpret the first word of `$ARGUMENTS` as a lattice action and call the lattice_control tool. " +
+      "Valid actions: status, run <pipeline> <goal>, continue [message], retry [message], accept [reason], abort, reset. " +
+      "For run, pass the pipeline and remaining text as goal. For continue/retry, pass remaining text as response. For accept, pass remaining text as reason.",
+  };
+}
 
 const server: Plugin = async ({ client, directory }) => {
   const latticeConfig = await loadConfig(directory);
@@ -107,77 +121,29 @@ const server: Plugin = async ({ client, directory }) => {
 
   return {
     tool: {
-      lattice_run: createLatticeRunTool(toolDeps),
-      lattice_status: createLatticeStatusTool(toolDeps),
-      lattice_abort: createLatticeAbortTool(toolDeps),
-      lattice_retry: createLatticeRetryTool(toolDeps),
-      lattice_approve: createLatticeApproveTool(toolDeps),
-      lattice_proceed: createLatticeProceedTool(toolDeps),
-      lattice_reset: createLatticeResetTool(toolDeps),
+      lattice_control: createLatticeControlTool(toolDeps),
       lattice_signal: createLatticeSignalTool(toolDeps),
     },
 
     async config(config) {
-      config.command = config.command ?? {};
-      for (const name of state.registry.keys()) {
-        config.command[name] = {
-          description: `Run the ${name} pipeline via lattice`,
-          template: `Use the lattice_run tool with pipeline "${name}" and goal: $ARGUMENTS`,
-        };
-      }
-      config.command["lattice-status"] = {
-        description: "Show lattice pipeline status",
-        template: "Use the lattice_status tool to show the current pipeline status.",
+      registerLatticeCommands(config, state.registry.keys());
+
+      const permission =
+        config.permission && typeof config.permission === "object"
+          ? ({ ...config.permission } as Record<string, unknown>)
+          : ({ ...(config.permission ? { "*": config.permission } : {}) } as Record<string, unknown>);
+      permission.lattice = {
+        ...(typeof permission.lattice === "object" && permission.lattice ? permission.lattice : {}),
+        "continue:*": "ask",
+        "accept:*": "ask",
+        "abort:*": "ask",
+        "reset:*": "ask",
       };
-      config.command["lattice-abort"] = {
-        description: "Abort the active lattice pipeline",
-        template:
-          "The user has explicitly invoked /lattice-abort. Call the lattice_abort tool with confirm: true. Do not call any other lattice tools.",
-      };
-      config.command["lattice-retry"] = {
-        description: "Retry a paused lattice pipeline",
-        template:
-          "The user has explicitly invoked /lattice-retry. Call the lattice_retry tool with confirm: true. " +
-          "If the user's most recent message contains a decision, clarification, or guidance that answers the pause reason, pass it verbatim as the `response` argument so the retried stage receives it. " +
-          "Do not call any other lattice tools.",
-      };
-      config.command["lattice-approve"] = {
-        description: "Approve a lattice pipeline paused at an approval gate",
-        template:
-          "The user has explicitly invoked /lattice-approve. Call the lattice_approve tool with confirm: true. " +
-          "If the user's most recent message contains a decision, clarification, or guidance for the next stage, pass it verbatim as the `response` argument. " +
-          "Do not call any other lattice tools.",
-      };
-      config.command["lattice-proceed"] = {
-        description: "Accept a paused pipeline's rejection and advance past it",
-        template:
-          "The user has explicitly invoked /lattice-proceed. Call the lattice_proceed tool with confirm: true. " +
-          'If the user supplied a justification (e.g. "shared-file edits are intentional"), pass it verbatim as the `reason` argument. ' +
-          "Do not call any other lattice tools.",
-      };
-      config.command["lattice-reset"] = {
-        description: "Recover a lattice pipeline stuck in running state (e.g. opencode died mid-stage)",
-        template:
-          "The user has explicitly invoked /lattice-reset. Call the lattice_reset tool with confirm: true. Do not call any other lattice tools.",
-      };
+      config.permission = permission as never;
     },
 
     "chat.params": async (input) => {
       agentTracker.track(input.sessionID, input.agent);
-    },
-
-    // Observe user-typed slash commands. When the user types `/lattice-retry`
-    // or `/lattice-approve`, stamp a short-lived token on the active instance
-    // so `lattice_retry` / `lattice_approve` can distinguish a real user
-    // release from an orchestrator-initiated tool call. Hard-gated pauses
-    // (`pauseAfter: { hardGate: true }`) require this token; soft pauses do
-    // not. Agent tool calls do not go through this hook.
-    "command.execute.before": async (input) => {
-      if (input.command === "lattice-retry" || input.command === "lattice-approve") {
-        await stampUserUnlockToken(state, input.sessionID).catch((err) => {
-          log.warn(`Failed to stamp user-unlock token: ${err instanceof Error ? err.message : String(err)}`);
-        });
-      }
     },
 
     "experimental.chat.system.transform": buildSystemTransform(latticeConfig, agentTracker, skillStore),

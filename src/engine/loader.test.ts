@@ -26,7 +26,7 @@ describe("loadPipelines", () => {
       `export default {
         name: "review",
         stages: [
-          { id: "code-review", type: "stage", agent: "code-reviewer", completion: "tool_signal", signals: ["complete"], fork: false },
+          { id: "code-review", type: "stage", agent: "code-reviewer", completion: "signal", signals: ["complete"], context: "isolated" },
         ],
       };`,
     );
@@ -57,7 +57,7 @@ describe("loadPipelines", () => {
           name: "review",
           description: "global review",
           stages: [
-            { id: "global-review", type: "stage", agent: "reviewer", completion: "idle", fork: false },
+            { id: "global-review", type: "stage", agent: "reviewer", completion: "idle", context: "isolated" },
           ],
         };`,
       );
@@ -67,7 +67,7 @@ describe("loadPipelines", () => {
           name: "review",
           description: "project review",
           stages: [
-            { id: "project-review", type: "stage", agent: "reviewer", completion: "idle", fork: false },
+            { id: "project-review", type: "stage", agent: "reviewer", completion: "idle", context: "isolated" },
           ],
         };`,
       );
