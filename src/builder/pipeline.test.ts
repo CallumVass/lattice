@@ -7,8 +7,8 @@ describe("pipeline", () => {
     const p = pipeline("implement", {
       description: "TDD implementation pipeline",
       stages: [
-        stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] }),
-        stage("implement", { agent: "implementor", completion: "tool_signal", signals: ["complete"], fork: true }),
+        stage("plan", { agent: "planner", completion: "signal", signals: ["complete"] }),
+        stage("implement", { agent: "implementor", completion: "signal", signals: ["complete"], context: "shared" }),
       ],
     });
 
@@ -20,8 +20,8 @@ describe("pipeline", () => {
   it("supports pipeline composition via ref", () => {
     const p = pipeline("implement", {
       stages: [
-        stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] }),
-        stage("implement", { agent: "implementor", completion: "tool_signal", signals: ["complete"], fork: true }),
+        stage("plan", { agent: "planner", completion: "signal", signals: ["complete"] }),
+        stage("implement", { agent: "implementor", completion: "signal", signals: ["complete"], context: "shared" }),
         ref("review"),
       ],
     });
@@ -32,7 +32,7 @@ describe("pipeline", () => {
 
   it("omits description when not provided", () => {
     const p = pipeline("review", {
-      stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal", signals: ["complete"] })],
+      stages: [stage("code-review", { agent: "code-reviewer", completion: "signal", signals: ["complete"] })],
     });
 
     expect(p.description).toBeUndefined();

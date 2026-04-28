@@ -30,7 +30,7 @@ function makeRegistry() {
     stages: [
       stage("plan", {
         agent: "planner",
-        completion: "tool_signal",
+        completion: "signal",
         signals: ["complete"],
         skills: { dynamic: false, pinned: ["tdd"], max: 2 },
       }),
@@ -122,7 +122,7 @@ describe("selectSkillsForStage", () => {
       stages: [
         stage("plan", {
           agent: "planner",
-          completion: "tool_signal",
+          completion: "signal",
           signals: ["complete"],
           skills: { dynamic: true, max: 2 },
         }),

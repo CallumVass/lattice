@@ -5,7 +5,7 @@ describe("stage", () => {
   it("creates a stage with defaults", () => {
     const s = stage("plan", {
       agent: "planner",
-      completion: "tool_signal",
+      completion: "signal",
       signals: ["complete"],
     });
 
@@ -13,9 +13,9 @@ describe("stage", () => {
       id: "plan",
       type: "stage",
       agent: "planner",
-      completion: "tool_signal",
+      completion: "signal",
       signals: ["complete"],
-      fork: false,
+      context: "isolated",
       pauseAfter: false,
       isRewindTarget: false,
     });
@@ -24,7 +24,7 @@ describe("stage", () => {
   it("creates a stage with isRewindTarget and maxRewinds", () => {
     const s = stage("author", {
       agent: "ticket-author",
-      completion: "tool_signal",
+      completion: "signal",
       signals: ["complete"],
       isRewindTarget: true,
       maxRewinds: 2,
@@ -37,28 +37,28 @@ describe("stage", () => {
   it("omits maxRewinds when undefined", () => {
     const s = stage("plan", {
       agent: "planner",
-      completion: "tool_signal",
+      completion: "signal",
       signals: ["complete"],
     });
 
     expect("maxRewinds" in s).toBe(false);
   });
 
-  it("creates a forked stage", () => {
+  it("creates a shared-context stage", () => {
     const s = stage("implement", {
       agent: "implementor",
-      completion: "tool_signal",
+      completion: "signal",
       signals: ["complete"],
-      fork: true,
+      context: "shared",
     });
 
-    expect(s.fork).toBe(true);
+    expect(s.context).toBe("shared");
   });
 
   it("creates a stage with skills", () => {
     const s = stage("plan", {
       agent: "planner",
-      completion: "tool_signal",
+      completion: "signal",
       signals: ["complete"],
       skills: { dynamic: true, pinned: ["tdd"] },
     });
@@ -73,34 +73,12 @@ describe("stage", () => {
   it("creates a stage with custom prompt", () => {
     const s = stage("plan", {
       agent: "planner",
-      completion: "tool_signal",
+      completion: "signal",
       signals: ["complete"],
       prompt: "Plan the implementation of {{goal}}",
     });
 
     expect(s.prompt).toBe("Plan the implementation of {{goal}}");
-  });
-
-  it("creates a stage with a post-hook and default retries", () => {
-    const s = stage("implement", {
-      agent: "implementor",
-      completion: "tool_signal",
-      signals: ["complete"],
-      postHook: { commands: ["npm run check"] },
-    });
-
-    expect(s.postHook).toEqual({ commands: ["npm run check"], maxRetries: 1 });
-  });
-
-  it("honours an explicit post-hook maxRetries", () => {
-    const s = stage("implement", {
-      agent: "implementor",
-      completion: "tool_signal",
-      signals: ["complete"],
-      postHook: { commands: ["lint", "test"], maxRetries: 3 },
-    });
-
-    expect(s.postHook).toEqual({ commands: ["lint", "test"], maxRetries: 3 });
   });
 });
 

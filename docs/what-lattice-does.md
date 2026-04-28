@@ -16,8 +16,8 @@ Lattice **does not ship agents, skills, or pipelines** — you provide them. Lat
 
 - **Pipeline**: a named sequence of stages (a TypeScript file with a default export).
 - **Stage**: one agent run with a completion rule.
-- `fork: true`: continue in the same conversation context.
-- `fork: false`: start a cold subtask for independence.
+- `context: "shared"`: continue in the same conversation context.
+- `context: "isolated"`: start a cold subtask for independence.
 - **Skill**: markdown instructions injected into an agent's system prompt.
 
 ## Where content lives
@@ -44,5 +44,5 @@ Project paths override global ones with the same name.
 2. Lattice creates a pipeline instance in `.lattice/state/`.
 3. It launches the first stage and waits for the stage's completion rule.
 4. When the stage completes, it advances automatically.
-5. If a stage has `pauseAfter`, the pipeline pauses for user sign-off — released with `/lattice-approve`.
-6. If a stage returns `reject` or `blocked`, the pipeline pauses until the user runs `/lattice-retry` (rewind), `/lattice-proceed` (accept), or `/lattice-abort`.
+5. If a stage has `pauseAfter`, the pipeline pauses for user sign-off — released with `/lattice continue`.
+6. If a stage returns `fail` or `blocked`, the pipeline pauses until the user runs `/lattice retry` (rewind), `/lattice accept` (accept), or `/lattice abort`.

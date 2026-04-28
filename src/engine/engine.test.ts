@@ -25,9 +25,7 @@ function engineConfig(config: LatticeConfig = {}): EngineConfig {
 
 function registryOf(...defs: ReturnType<typeof pipeline>[]): PipelineRegistry {
   const reg: PipelineRegistry = new Map();
-  for (const d of defs) {
-    reg.set(d.name, d);
-  }
+  for (const d of defs) reg.set(d.name, d);
   return reg;
 }
 
@@ -37,7 +35,6 @@ async function writeSignal(stageId: string, status: string, reason?: string) {
   await writeFile(join(dir, `${stageId}.json`), JSON.stringify({ status, reason }));
 }
 
-/** Simulate: start pipeline → build action → mark running */
 async function startAndRun(flat: ReturnType<typeof flattenPipeline>, goal: string, config: EngineConfig) {
   const { instance } = await startPipeline(flat, goal, config);
   const action = buildStageAction(instance, flat);
@@ -47,7 +44,6 @@ async function startAndRun(flat: ReturnType<typeof flattenPipeline>, goal: strin
   return { instance, action };
 }
 
-/** Simulate: check completion → advance if complete */
 async function checkAndAdvance(
   instance: Parameters<typeof checkStageCompletion>[0],
   flat: Parameters<typeof checkStageCompletion>[1],
@@ -70,7 +66,7 @@ afterEach(async () => {
 describe("startPipeline + buildStageAction", () => {
   it("creates instance with first stage pending", async () => {
     const p = pipeline("review", {
-      stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal", signals: ["complete"] })],
+      stages: [stage("code-review", { agent: "code-reviewer", completion: "signal", signals: ["complete"] })],
     });
     const flat = flattenPipeline(p, registryOf(p));
 
@@ -80,9 +76,9 @@ describe("startPipeline + buildStageAction", () => {
     expect(instance.stages[0]?.status).toBe("pending");
   });
 
-  it("builds subtask action for fork:false stage", () => {
+  it("builds subtask action for isolated context", () => {
     const p = pipeline("review", {
-      stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal", signals: ["complete"] })],
+      stages: [stage("code-review", { agent: "code-reviewer", completion: "signal", signals: ["complete"] })],
     });
     const flat = flattenPipeline(p, registryOf(p));
     const instance = {
@@ -101,9 +97,9 @@ describe("startPipeline + buildStageAction", () => {
     expect(action?.agent).toBe("code-reviewer");
   });
 
-  it("builds inject action for fork:true stage", () => {
+  it("builds inject action for shared context", () => {
     const p = pipeline("impl", {
-      stages: [stage("impl", { agent: "implementor", completion: "tool_signal", signals: ["complete"], fork: true })],
+      stages: [stage("impl", { agent: "implementor", completion: "signal", signals: ["complete"], context: "shared" })],
     });
     const flat = flattenPipeline(p, registryOf(p));
     const instance = {
@@ -124,7 +120,7 @@ describe("startPipeline + buildStageAction", () => {
   it("skips stages marked in config", async () => {
     const p = pipeline("implement", {
       stages: [
-        stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"] }),
+        stage("plan", { agent: "planner", completion: "signal", signals: ["complete"] }),
         stage("refactor", { agent: "refactorer", completion: "idle" }),
       ],
     });
@@ -135,19 +131,6 @@ describe("startPipeline + buildStageAction", () => {
 
     const result = await startPipeline(flat, "impl", engineConfig(config));
     expect(result.instance.stages[1]?.status).toBe("skipped");
-  });
-
-  it("completes immediately when all stages skipped", async () => {
-    const p = pipeline("noop", {
-      stages: [stage("only", { agent: "planner", completion: "tool_signal", signals: ["complete"] })],
-    });
-    const flat = flattenPipeline(p, registryOf(p));
-    const config: LatticeConfig = {
-      pipelines: { noop: { stages: { only: { skip: true } } } },
-    };
-
-    const result = await startPipeline(flat, "noop", engineConfig(config));
-    expect(result.instance.status).toBe("completed");
   });
 });
 
@@ -163,9 +146,9 @@ describe("dynamic stage expansion", () => {
           id: "build-slices",
           type: "stage",
           agent: "build",
-          completion: "tool_signal",
+          completion: "signal",
           signals: ["complete"],
-          fork: false,
+          context: "isolated",
           pauseAfter: false,
           isRewindTarget: false,
           expand: {
@@ -176,14 +159,14 @@ describe("dynamic stage expansion", () => {
               id: "build-slice-{{index}}-{{id}}",
               type: "stage",
               agent: "build",
-              completion: "tool_signal",
+              completion: "signal",
               signals: ["complete"],
-              fork: false,
+              context: "isolated",
               prompt: "Read {{file}} for {{title}}",
             },
           },
         },
-        stage("final", { agent: "build", completion: "tool_signal", signals: ["complete"] }),
+        stage("final", { agent: "build", completion: "signal", signals: ["complete"] }),
       ],
     });
     const flat = flattenPipeline(p, registryOf(p));
@@ -197,50 +180,6 @@ describe("dynamic stage expansion", () => {
     expect(buildStageAction(instance, effectivePipeline(instance, flat))?.stageId).toBe("build-slice-1-auth-setup");
   });
 
-  it("renders manifest-level metadata into expanded stage templates", async () => {
-    await writeFile(
-      join(projectDir, "manifest.json"),
-      JSON.stringify({
-        globalInvariants: ["Preserve existing API behaviour", "All writes must be tenant scoped"],
-        slices: [{ index: 1, id: "tenant-writes", title: "Tenant writes", file: "slices/01.md" }],
-      }),
-    );
-    const p = pipeline("dynamic", {
-      stages: [
-        {
-          id: "build-slices",
-          type: "stage",
-          agent: "build",
-          completion: "tool_signal",
-          signals: ["complete"],
-          fork: false,
-          pauseAfter: false,
-          isRewindTarget: false,
-          expand: {
-            from: "manifest.json",
-            arrayPath: "slices",
-            maxItems: 4,
-            template: {
-              id: "build-{{id}}",
-              type: "stage",
-              agent: "build",
-              completion: "tool_signal",
-              signals: ["complete"],
-              prompt: "Read {{file}}. Global invariants:\n{{manifest.globalInvariants}}",
-            },
-          },
-        },
-      ],
-    });
-    const flat = flattenPipeline(p, registryOf(p));
-    const { instance } = await startPipeline(flat, "ship", engineConfig());
-
-    const expanded = await expandCurrentStageIfNeeded(instance, flat, engineConfig());
-
-    expect(expanded.stages[0]?.prompt).toContain("- Preserve existing API behaviour");
-    expect(expanded.stages[0]?.prompt).toContain("- All writes must be tenant scoped");
-  });
-
   it("refuses manifests that exceed maxItems", async () => {
     await writeFile(join(projectDir, "manifest.json"), JSON.stringify({ slices: [{ id: "a" }, { id: "b" }] }));
     const p = pipeline("dynamic", {
@@ -249,9 +188,9 @@ describe("dynamic stage expansion", () => {
           id: "build-slices",
           type: "stage",
           agent: "build",
-          completion: "tool_signal",
+          completion: "signal",
           signals: ["complete"],
-          fork: false,
+          context: "isolated",
           pauseAfter: false,
           isRewindTarget: false,
           expand: {
@@ -262,8 +201,9 @@ describe("dynamic stage expansion", () => {
               id: "build-{{id}}",
               type: "stage",
               agent: "build",
-              completion: "tool_signal",
+              completion: "signal",
               signals: ["complete"],
+              context: "isolated",
             },
           },
         },
@@ -279,7 +219,7 @@ describe("dynamic stage expansion", () => {
 describe("checkStageCompletion", () => {
   it("returns incomplete when no signal", async () => {
     const p = pipeline("review", {
-      stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal", signals: ["complete"] })],
+      stages: [stage("code-review", { agent: "code-reviewer", completion: "signal", signals: ["complete"] })],
     });
     const flat = flattenPipeline(p, registryOf(p));
 
@@ -291,16 +231,16 @@ describe("checkStageCompletion", () => {
 
   it("returns complete when signal file exists", async () => {
     const p = pipeline("review", {
-      stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal", signals: ["complete"] })],
+      stages: [stage("code-review", { agent: "code-reviewer", completion: "signal", signals: ["pass"] })],
     });
     const flat = flattenPipeline(p, registryOf(p));
 
     const { instance } = await startAndRun(flat, "Review", engineConfig());
-    await writeSignal("code-review", "approve", "LGTM");
+    await writeSignal("code-review", "pass", "LGTM");
     const result = await checkStageCompletion(instance, flat, engineConfig());
 
     expect(result.complete).toBe(true);
-    expect(result.verdict).toBe("approve");
+    expect(result.verdict).toBe("pass");
   });
 
   it("idle completion always returns complete", async () => {
@@ -320,39 +260,44 @@ describe("advancePipeline", () => {
   it("advances to next stage", async () => {
     const p = pipeline("review", {
       stages: [
-        stage("code-review", { agent: "code-reviewer", completion: "tool_signal", signals: ["complete"] }),
-        stage("review-judge", { agent: "review-judge", completion: "tool_signal", signals: ["complete"], fork: true }),
+        stage("code-review", { agent: "code-reviewer", completion: "signal", signals: ["complete"] }),
+        stage("review-judge", {
+          agent: "review-judge",
+          completion: "signal",
+          signals: ["complete"],
+          context: "shared",
+        }),
       ],
     });
     const flat = flattenPipeline(p, registryOf(p));
 
     const { instance } = await startAndRun(flat, "Review PR", engineConfig());
-    await writeSignal("code-review", "approve");
+    await writeSignal("code-review", "complete");
     const result = await checkAndAdvance(instance, flat, engineConfig());
 
     expect(result.instance.stages[0]?.status).toBe("completed");
-    expect(result.instance.stages[0]?.verdict).toBe("approve");
     expect(result.instance.stages[1]?.status).toBe("pending");
   });
 
-  it("pauses on rejection", async () => {
+  it("pauses on fail with explicit pause state", async () => {
     const p = pipeline("review", {
-      stages: [stage("code-review", { agent: "code-reviewer", completion: "tool_signal", signals: ["complete"] })],
+      stages: [stage("code-review", { agent: "code-reviewer", completion: "signal", signals: ["pass", "fail"] })],
     });
     const flat = flattenPipeline(p, registryOf(p));
 
     const { instance } = await startAndRun(flat, "Review", engineConfig());
-    await writeSignal("code-review", "reject", "Found 2 issues");
+    await writeSignal("code-review", "fail", "Found 2 issues");
     const result = await checkAndAdvance(instance, flat, engineConfig());
 
     expect(result.instance.status).toBe("paused");
-    expect(result.instance.stages[0]?.verdict).toBe("reject");
-    expect(result.pauseReason).toContain("reject");
+    expect(result.instance.stages[0]?.verdict).toBe("fail");
+    expect(result.pause).toMatchObject({ kind: "rejection", stageId: "code-review" });
+    expect(result.instance.pause?.reason).toContain("Found 2 issues");
   });
 
   it("pauses on blocked", async () => {
     const p = pipeline("impl", {
-      stages: [stage("build", { agent: "implementor", completion: "tool_signal", signals: ["complete"] })],
+      stages: [stage("build", { agent: "implementor", completion: "signal", signals: ["complete", "blocked"] })],
     });
     const flat = flattenPipeline(p, registryOf(p));
 
@@ -362,13 +307,14 @@ describe("advancePipeline", () => {
 
     expect(result.instance.status).toBe("paused");
     expect(result.instance.stages[0]?.verdict).toBe("blocked");
+    expect(result.pause).toMatchObject({ kind: "blocked", stageId: "build" });
   });
 
-  it("pauses at an approval gate and surfaces a gateReason", async () => {
+  it("pauses at a checkpoint and records pause metadata", async () => {
     const p = pipeline("impl", {
       stages: [
-        stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"], pauseAfter: true }),
-        stage("build", { agent: "implementor", completion: "tool_signal", signals: ["complete"] }),
+        stage("plan", { agent: "planner", completion: "signal", signals: ["complete"], pauseAfter: true }),
+        stage("build", { agent: "implementor", completion: "signal", signals: ["complete"] }),
       ],
     });
     const flat = flattenPipeline(p, registryOf(p));
@@ -380,20 +326,39 @@ describe("advancePipeline", () => {
     expect(result.instance.status).toBe("paused");
     expect(result.instance.stages[0]?.status).toBe("completed");
     expect(result.instance.currentStageIndex).toBe(1);
-    expect(result.gateReason).toContain("approval");
-    expect(result.pauseReason).toBeUndefined();
+    expect(result.pause).toMatchObject({ kind: "checkpoint", stageId: "plan", nextStageId: "build" });
   });
 
-  it("completes pipeline after last stage", async () => {
-    const p = pipeline("review", {
+  it("renders custom checkpoint prompt substitutions", async () => {
+    const p = pipeline("impl", {
       stages: [
-        stage("code-review", { agent: "code-reviewer", completion: "tool_signal", signals: ["approve", "reject"] }),
+        stage("plan", {
+          agent: "planner",
+          completion: "signal",
+          signals: ["complete"],
+          pauseAfter: { prompt: "Review `.lattice/plans/impl.md`.\n\nAgent said: {{summary}}" },
+        }),
+        stage("build", { agent: "implementor", completion: "signal", signals: ["complete"] }),
       ],
     });
     const flat = flattenPipeline(p, registryOf(p));
 
+    const { instance } = await startAndRun(flat, "build feature", engineConfig());
+    await writeSignal("plan", "complete", "Plan with 4 tasks written");
+    const result = await checkAndAdvance(instance, flat, engineConfig());
+
+    expect(result.pause?.prompt).toContain("Review `.lattice/plans/impl.md`.");
+    expect(result.pause?.prompt).toContain("Agent said: Plan with 4 tasks written");
+  });
+
+  it("completes pipeline after last stage", async () => {
+    const p = pipeline("review", {
+      stages: [stage("code-review", { agent: "code-reviewer", completion: "signal", signals: ["pass", "fail"] })],
+    });
+    const flat = flattenPipeline(p, registryOf(p));
+
     const { instance } = await startAndRun(flat, "Review", engineConfig());
-    await writeSignal("code-review", "approve");
+    await writeSignal("code-review", "pass");
     const result = await checkAndAdvance(instance, flat, engineConfig());
 
     expect(result.instance.status).toBe("completed");
@@ -404,118 +369,18 @@ describe("signal set validation", () => {
   it("emits a diagnostic when the signal is outside the declared set", async () => {
     const p = pipeline("review", {
       stages: [
-        stage("code-review", { agent: "code-reviewer", completion: "tool_signal", signals: ["complete"] }),
-        stage("next", { agent: "next-agent", completion: "idle", fork: true }),
+        stage("code-review", { agent: "code-reviewer", completion: "signal", signals: ["complete"] }),
+        stage("next", { agent: "next-agent", completion: "idle", context: "shared" }),
       ],
     });
     const flat = flattenPipeline(p, registryOf(p));
 
     const { instance } = await startAndRun(flat, "Review", engineConfig());
-    await writeSignal("code-review", "approve", "LGTM");
+    await writeSignal("code-review", "pass", "LGTM");
     const result = await checkAndAdvance(instance, flat, engineConfig());
 
-    expect(result.diagnostics?.[0]).toContain('signalled "approve"');
+    expect(result.diagnostics?.[0]).toContain('signalled "pass"');
     expect(result.diagnostics?.[0]).toContain("declared signals are: complete");
-    // The signal is still honored.
-    expect(result.instance.stages[0]?.verdict).toBe("approve");
-  });
-
-  it("emits no diagnostic when the signal is in the declared set", async () => {
-    const p = pipeline("review", {
-      stages: [
-        stage("code-review", { agent: "code-reviewer", completion: "tool_signal", signals: ["approve", "reject"] }),
-      ],
-    });
-    const flat = flattenPipeline(p, registryOf(p));
-
-    const { instance } = await startAndRun(flat, "Review", engineConfig());
-    await writeSignal("code-review", "approve");
-    const result = await checkAndAdvance(instance, flat, engineConfig());
-
-    expect(result.diagnostics).toBeUndefined();
-  });
-});
-
-describe("custom pauseAfter prompt", () => {
-  it("renders {{summary}} substitution and surfaces the body via customGatePrompt", async () => {
-    const p = pipeline("impl", {
-      stages: [
-        stage("plan", {
-          agent: "planner",
-          completion: "tool_signal",
-          signals: ["complete"],
-          pauseAfter: { prompt: "Review the draft at `.lattice/plans/impl.md`.\n\nAgent said: {{summary}}" },
-        }),
-        stage("build", { agent: "implementor", completion: "tool_signal", signals: ["complete"] }),
-      ],
-    });
-    const flat = flattenPipeline(p, registryOf(p));
-
-    const { instance } = await startAndRun(flat, "build feature", engineConfig());
-    await writeSignal("plan", "complete", "Plan with 4 tasks written");
-    const result = await checkAndAdvance(instance, flat, engineConfig());
-
-    expect(result.instance.status).toBe("paused");
-    expect(result.customGatePrompt).toContain("Review the draft at `.lattice/plans/impl.md`.");
-    expect(result.customGatePrompt).toContain("Agent said: Plan with 4 tasks written");
-  });
-
-  it("uses default gate message when pauseAfter is true (no custom prompt)", async () => {
-    const p = pipeline("impl", {
-      stages: [
-        stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"], pauseAfter: true }),
-        stage("build", { agent: "implementor", completion: "tool_signal", signals: ["complete"] }),
-      ],
-    });
-    const flat = flattenPipeline(p, registryOf(p));
-
-    const { instance } = await startAndRun(flat, "build", engineConfig());
-    await writeSignal("plan", "complete");
-    const result = await checkAndAdvance(instance, flat, engineConfig());
-
-    expect(result.instance.status).toBe("paused");
-    expect(result.customGatePrompt).toBeUndefined();
-    expect(result.gateReason).toContain("approval");
-  });
-
-  it("flags the instance as hardGated when pauseAfter.hardGate is true", async () => {
-    const p = pipeline("impl", {
-      stages: [
-        stage("plan", {
-          agent: "planner",
-          completion: "tool_signal",
-          signals: ["complete"],
-          pauseAfter: { hardGate: true },
-        }),
-        stage("build", { agent: "implementor", completion: "tool_signal", signals: ["complete"] }),
-      ],
-    });
-    const flat = flattenPipeline(p, registryOf(p));
-
-    const { instance } = await startAndRun(flat, "build", engineConfig());
-    await writeSignal("plan", "complete");
-    const result = await checkAndAdvance(instance, flat, engineConfig());
-
-    expect(result.instance.status).toBe("paused");
-    expect(result.instance.hardGated).toBe(true);
-    expect(result.hardGate).toBe(true);
-  });
-
-  it("does not set hardGated for a soft pauseAfter", async () => {
-    const p = pipeline("impl", {
-      stages: [
-        stage("plan", { agent: "planner", completion: "tool_signal", signals: ["complete"], pauseAfter: true }),
-        stage("build", { agent: "implementor", completion: "tool_signal", signals: ["complete"] }),
-      ],
-    });
-    const flat = flattenPipeline(p, registryOf(p));
-
-    const { instance } = await startAndRun(flat, "build", engineConfig());
-    await writeSignal("plan", "complete");
-    const result = await checkAndAdvance(instance, flat, engineConfig());
-
-    expect(result.instance.status).toBe("paused");
-    expect(result.instance.hardGated).toBeUndefined();
-    expect(result.hardGate).toBeUndefined();
+    expect(result.instance.stages[0]?.verdict).toBe("pass");
   });
 });

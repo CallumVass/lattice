@@ -1,114 +1,80 @@
 // User-facing pipeline notifications.
-//
-// Each message has two audiences:
-// - The orchestrator agent (reads it as an injected user-turn prompt). We tell
-//   it to stand down so it doesn't auto-fix, auto-retry, or auto-commit.
-// - The human user (sees it in their session). We give them a clean "what
-//   happened" + "what to do next" block they can act on.
 
-import type { PipelineInstance } from "../schema/index.js";
+import type { PipelineInstance, PipelinePause } from "../schema/index.js";
 
 function buildUserNotification(options: { title: string; summary: string; nextSteps: string[] }): string {
   const nextStepsBlock = options.nextSteps.length
     ? ["", "### What to do next", "", ...options.nextSteps.map((s) => `- ${s}`)].join("\n")
     : "";
 
-  return [
-    "[LATTICE — STATUS UPDATE]",
-    "",
-    "**For the agent:** this is a status notification for the user. Do NOT act on it. Do NOT call `lattice_retry`, `lattice_abort`, `lattice_run`, or `lattice_signal`. Do NOT run git commands, tests, or any follow-up actions implied below. Wait for the user's next instruction.",
-    "",
-    "---",
-    "",
-    `## ${options.title}`,
-    "",
-    options.summary,
-    nextStepsBlock,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  return [`## ${options.title}`, "", options.summary, nextStepsBlock].filter(Boolean).join("\n");
 }
 
-export function pauseMessage(pipelineName: string, reason: string): string {
+function nativeQuestionStep(options: string, controlMapping: string): string {
+  return `Native UX: call the \`question\` tool with options ${options}. After it returns, call \`lattice_control\` (${controlMapping}).`;
+}
+
+export function pauseMessage(pipelineName: string, pause: PipelinePause): string {
+  const fallbackHint =
+    "If `question` is unavailable or denied, tell the user to run one of the `/lattice ...` commands below.";
+
+  if (pause.kind === "checkpoint") {
+    return buildUserNotification({
+      title: `Pipeline "${pipelineName}" paused - checkpoint`,
+      summary: pause.prompt ?? pause.reason ?? `Stage "${pause.stageId}" completed and awaits approval.`,
+      nextSteps: [
+        nativeQuestionStep(
+          "`Continue`, `Continue with guidance`, `Abort`, and `Status`",
+          "`continue` with any guidance as `response`, `abort`, or `status`",
+        ),
+        `Continue with \`/lattice continue [message]\`; stage "${pause.nextStageId ?? "next"}" will start.`,
+        "Inspect with `/lattice status` or cancel with `/lattice abort`.",
+        fallbackHint,
+      ],
+    });
+  }
+
+  if (pause.kind === "blocked") {
+    return buildUserNotification({
+      title: `Pipeline "${pipelineName}" paused - blocked`,
+      summary: pause.reason ?? `Stage "${pause.stageId}" is blocked.`,
+      nextSteps: [
+        nativeQuestionStep(
+          "`Retry with guidance`, `Accept and continue`, `Abort`, and `Status`",
+          "`retry` with guidance as `response`, `accept` with a `reason`, `abort`, or `status`",
+        ),
+        "Retry with `/lattice retry [message]`.",
+        "Accept and continue with `/lattice accept [reason]`, or cancel with `/lattice abort`.",
+        fallbackHint,
+      ],
+    });
+  }
+
+  if (pause.kind === "stuck") {
+    return buildUserNotification({
+      title: `Pipeline "${pipelineName}" paused - reset needed`,
+      summary: pause.reason ?? `Stage "${pause.stageId}" appears stuck.`,
+      nextSteps: [
+        nativeQuestionStep("`Restart stage`, `Abort`, and `Status`", "`retry`, `abort`, or `status`"),
+        "Restart with `/lattice retry`.",
+        "Inspect with `/lattice status` or cancel with `/lattice abort`.",
+        fallbackHint,
+      ],
+    });
+  }
+
   return buildUserNotification({
-    title: `Pipeline "${pipelineName}" paused — review rejected`,
-    summary: `The review stage flagged an issue:\n\n> ${reason}`,
+    title: `Pipeline "${pipelineName}" paused - stage failed`,
+    summary: pause.reason ?? `Stage "${pause.stageId}" failed.`,
     nextSteps: [
-      "**Fix it manually**, then run `/lattice-retry` — lattice rewinds to the implementor with your changes in context.",
-      "**Retry as-is** with `/lattice-retry` — the implementor re-runs with the rejection reason so it can try again.",
-      "**Cancel** with `/lattice-abort`.",
-      "**Inspect state** with `/lattice-status` before deciding.",
+      nativeQuestionStep(
+        "`Retry with guidance`, `Accept and continue`, `Abort`, and `Status`",
+        "`retry` with guidance as `response`, `accept` with a `reason`, `abort`, or `status`",
+      ),
+      "Retry with `/lattice retry [message]`.",
+      "Accept and continue with `/lattice accept [reason]`, or cancel with `/lattice abort`.",
+      fallbackHint,
     ],
-  });
-}
-
-export function postHookPauseMessage(pipelineName: string, stageId: string, command: string, output: string): string {
-  return buildUserNotification({
-    title: `Pipeline "${pipelineName}" paused — post-hook failed`,
-    summary: `Stage "${stageId}" signalled completion but its post-hook command \`${command}\` kept failing after the agent's retry attempts:\n\n\`\`\`\n${output}\n\`\`\``,
-    nextSteps: [
-      "**Fix it manually**, then run `/lattice-retry` to resume.",
-      "**Retry as-is** with `/lattice-retry` — the stage re-runs and its post-hook fires again.",
-      "**Cancel** with `/lattice-abort`.",
-    ],
-  });
-}
-
-export function gateMessage(pipelineName: string, reason: string, nextStageId: string | undefined): string {
-  return buildUserNotification({
-    title: `Pipeline "${pipelineName}" paused — approval required`,
-    summary: `${reason}\n\nThe previous stage succeeded; this is an approval checkpoint, not a failure. Read the output above and tell the orchestrator how to proceed.`,
-    nextSteps: [
-      `**Approve as-is** — reply "proceed" (or similar); the orchestrator will run \`/lattice-approve\` and stage "${nextStageId ?? "next"}" will start.`,
-      "**Propose changes** — reply with your changes, questions answered, or extra requirements. The orchestrator will pass them through to the next stage via `/lattice-approve`.",
-      "**Cancel** with `/lattice-abort`.",
-      "**Inspect state** with `/lattice-status` before deciding.",
-    ],
-  });
-}
-
-/**
- * Hard-gate variant of `gateMessage`. Used when the completed stage carried
- * `pauseAfter: { hardGate: true }`. Makes clear to both the orchestrator and
- * the user that the pause can only be released by a user-typed slash command
- * — the orchestrator cannot auto-proxy a `/lattice-retry`.
- */
-export function hardGateMessage(pipelineName: string, reason: string, nextStageId: string | undefined): string {
-  return buildUserNotification({
-    title: `Pipeline "${pipelineName}" paused — HARD GATE (user approval required)`,
-    summary: `${reason}\n\nThe previous stage succeeded; this is an approval checkpoint. This is a hard gate — the orchestrator cannot release it on your behalf.`,
-    nextSteps: [
-      `**Approve** — type \`/lattice-approve\` in the opencode TUI. Stage "${nextStageId ?? "next"}" will start.`,
-      "**Approve with guidance** — type `/lattice-approve <your message>`; the message is passed to the next stage.",
-      "**Cancel** with `/lattice-abort`.",
-      "**Inspect state** with `/lattice-status`.",
-      "",
-      "**To the orchestrator:** do NOT call `lattice_approve` or `lattice_retry` in response to this message. The hard-gate check will refuse it. Wait for the user to type the slash command.",
-    ],
-  });
-}
-
-/**
- * Render a pause message driven by the stage's custom `pauseAfter.prompt`.
- * The pipeline author controls the body; lattice still wraps it in the
- * agent-guard envelope so the orchestrator doesn't auto-act on it.
- */
-export function customGateMessage(pipelineName: string, body: string, hardGate = false): string {
-  const softSteps = [
-    "Reply with your decision or changes; the orchestrator will pass it through via `/lattice-approve`.",
-    "**Cancel** with `/lattice-abort`.",
-  ];
-  const hardSteps = [
-    "**Approve** — type `/lattice-approve` in the opencode TUI to release this hard gate.",
-    "**Approve with guidance** — type `/lattice-approve <your message>`; the message is passed downstream.",
-    "**Cancel** with `/lattice-abort`.",
-    "",
-    "**To the orchestrator:** do NOT call `lattice_approve` or `lattice_retry` in response to this message. Wait for the user's slash command.",
-  ];
-  return buildUserNotification({
-    title: hardGate ? `Pipeline "${pipelineName}" paused — HARD GATE` : `Pipeline "${pipelineName}" paused`,
-    summary: body,
-    nextSteps: hardGate ? hardSteps : softSteps,
   });
 }
 
@@ -124,7 +90,7 @@ export function completionMessage(instance: PipelineInstance): string {
       "Review the changes: `git diff` (or your editor's diff view).",
       "Run the project's test suite to verify.",
       "Commit and push when you're satisfied.",
-      "Start another pipeline with `/implement`, `/review`, `/architecture`, etc.",
+      "Start another pipeline with its generated slash command or `/lattice run <pipeline> <goal>`.",
     ],
   });
 }
@@ -135,9 +101,9 @@ export function failureMessage(pipelineName: string, stageId: string | undefined
     title: `Pipeline "${pipelineName}" failed`,
     summary: `Stage "${stageId ?? "unknown"}" errored:\n\n> ${errMsg}`,
     nextSteps: [
-      `Rerun \`/${pipelineName}\` to start fresh once the underlying cause is fixed.`,
+      `Rerun \`/${pipelineName}\` or \`/lattice run ${pipelineName} <goal>\` once the underlying cause is fixed.`,
       "Check the opencode log at `~/.local/share/opencode/log/` for the full stack trace.",
-      "`/lattice-status` can show the stored pipeline state before it's cleared.",
+      "Use `/lattice status` to inspect active state if any remains.",
     ],
   });
 }

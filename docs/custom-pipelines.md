@@ -16,9 +16,9 @@ export default pipeline("quick-fix", {
   stages: [
     stage("implement", {
       agent: "implementor",
-      completion: "tool_signal",
+      completion: "signal",
       signals: ["complete", "blocked"],
-      fork: false,
+      context: "isolated",
     }),
     ref("review-loop"),
   ],
@@ -41,9 +41,9 @@ export default {
       id: "implement",
       type: "stage",
       agent: "implementor",
-      completion: "tool_signal",
+      completion: "signal",
       signals: ["complete", "blocked"],
-      fork: false,
+      context: "isolated",
     },
     { type: "pipeline", pipeline: "review-loop" },
   ],
@@ -56,29 +56,28 @@ Tradeoff: no autocomplete, no compile-time check that `signals` matches the comp
 
 - `id`: unique stage id inside the pipeline
 - `agent`: OpenCode agent name to run (must match an agent discoverable under `agents/`)
-- `completion`: `idle` or `tool_signal`
-- `signals`: **required for `tool_signal` stages**. Declares the verdicts this stage may emit. Any of `"complete" | "approve" | "reject" | "blocked"`. Tailors the engine-injected signalling instructions the agent sees, and the engine warns if the agent signals outside the declared set.
-- `fork`: reuse the current conversation context when `true`; start a cold subtask when `false`
-- `pauseAfter`: `boolean | { prompt?: string; hardGate?: boolean }` — pause the pipeline after this stage completes. `true` renders a generic pause message; `{ prompt }` renders the given body verbatim (with `{{summary}}` / `{{reason}}` replaced by the stage's completion summary). The pause is released by `/lattice-approve`. Set `hardGate: true` to require a user-typed slash command to release — see [Hard gates](#hard-gates) below.
-- `postHook`: `{ commands: string[]; maxRetries?: number }` — shell commands to run after the stage signals completion but before advancing. On failure the agent is asked to fix it; see [`state-and-completion.md`](state-and-completion.md#post-hooks).
+- `completion`: `idle` or `signal`
+- `signals`: **required for `signal` stages**. Declares the verdicts this stage may emit. Any of `"complete" | "pass" | "fail" | "blocked"`. Tailors the engine-injected signalling instructions the agent sees, and `lattice_signal` refuses undeclared statuses.
+- `context`: `"isolated"` starts a cold subtask; `"shared"` reuses the current conversation context. Defaults to `"isolated"`.
+- `pauseAfter`: `boolean | { prompt?: string }` — pause the pipeline after this stage completes. `true` renders a generic checkpoint message; `{ prompt }` renders the given body verbatim (with `{{summary}}` / `{{reason}}` replaced by the stage's completion summary). The pause is released with `/lattice continue`.
 - `expand`: dynamic stage expansion config — replaces this placeholder stage with stages rendered from a project-local JSON manifest when the placeholder becomes current. See [Dynamic stage expansion](#dynamic-stage-expansion).
 - `skills`: optional pinned or dynamic skill selection (see [`skills.md`](skills.md))
 - `prompt`: extra instructions appended to the stage prompt. Use this to tell the agent about pipeline-specific wiring: what output format to produce, where to write files, etc.
-- `isRewindTarget`: `boolean` — opt this stage in as the rewind destination when a downstream stage rejects. Defaults to the legacy rule (rewind to the nearest upstream stage whose agent is literally named `implementor`). See [Reject rewinds](#reject-rewinds).
-- `maxRewinds`: `number` — cap on how many times this stage may be rewound-to. On exhaustion, `lattice_retry` pauses the pipeline with a cap-exhausted message instead of looping. Undefined = unlimited.
+- `isRewindTarget`: `boolean` — opt this stage in as the rewind destination when a downstream stage fails or blocks. If no upstream stage is marked, the failed/blocked stage retries itself. See [Fail rewinds](#fail-rewinds).
+- `maxRewinds`: `number` — cap on how many times this stage may be rewound-to. On exhaustion, `/lattice retry` leaves the pipeline paused with a cap-exhausted message instead of looping. Undefined = unlimited.
 
 ## Completion Methods
 
 - `idle` — the stage completes when the agent session goes idle (no further tool calls or messages).
-- `tool_signal` — the stage completes when the agent calls `lattice_signal` with one of its declared `signals`. The engine automatically injects the signalling instructions into every `tool_signal` stage's prompt, listing only the declared verdicts, so the agent knows exactly how to finish.
+- `signal` — the stage completes when the agent calls `lattice_signal` with one of its declared `signals`. The engine automatically injects the signalling instructions into every `signal` stage's prompt, listing only the declared verdicts, so the agent knows exactly how to finish.
 
 ## Signal vocabulary
 
 | Signal | Meaning | Engine behaviour |
 | --- | --- | --- |
 | `complete` | Work finished successfully | Pipeline advances |
-| `approve` | Verdict: pass | Pipeline advances |
-| `reject` | Verdict: fail | Pipeline pauses for user action |
+| `pass` | Verdict: pass | Pipeline advances |
+| `fail` | Verdict: fail | Pipeline pauses for user action |
 | `blocked` | Cannot continue | Pipeline pauses for user action |
 
 Declare only the verdicts relevant to each stage. Examples:
@@ -87,11 +86,11 @@ Declare only the verdicts relevant to each stage. Examples:
 // work stage — finishes successfully or blocks
 signals: ["complete", "blocked"];
 
-// verdict stage — approves or rejects (no notion of "just done")
-signals: ["approve", "reject"];
+// verdict stage — passes or fails (no notion of "just done")
+signals: ["pass", "fail"];
 
 // open-ended: all four outcomes possible
-signals: ["complete", "approve", "reject", "blocked"];
+signals: ["complete", "pass", "fail", "blocked"];
 ```
 
 ## Custom pause prompts
@@ -101,7 +100,7 @@ When a stage pauses for human interaction (approval, edit, clarification), use t
 ```ts
 stage("plan", {
   agent: "planner",
-  completion: "tool_signal",
+  completion: "signal",
   signals: ["complete"],
   pauseAfter: {
     prompt: [
@@ -109,55 +108,40 @@ stage("plan", {
       "",
       "Agent said: {{summary}}",
       "",
-      "Reply `/lattice-approve` to proceed, or `/lattice-approve <edits>` with changes.",
+      "Reply `/lattice continue` to proceed, or `/lattice continue <edits>` with changes.",
     ].join("\n"),
   },
 });
 ```
 
-`{{summary}}` and `{{reason}}` (aliases) expand to the stage's `lattice_signal` `reason`. If you need no substitution, omit the templates. Lattice wraps the body in the standard agent-guard envelope so the orchestrator doesn't auto-act on the notification.
+`{{summary}}` and `{{reason}}` (aliases) expand to the stage's `lattice_signal` `reason`. If you need no substitution, omit the templates. Lattice posts the pause with concise next steps and asks the build agent to use OpenCode's native `question` tool when available.
 
-## Hard gates
+## Approval And Permissions
 
-Soft pauses (`pauseAfter: true` or `pauseAfter: { prompt }`) are *advisory*: lattice asks the orchestrator to wait for the user, but the orchestrator can still call `lattice_approve` on its own if it misreads the pause message. For critical approval steps — plan sign-off, destructive actions, PR comment posting — use a hard gate:
+`pauseAfter` creates an explicit checkpoint in the persisted instance. Resume with `/lattice continue [response]`, which records the optional response as `resumeContext` and includes it in the next stage prompt.
 
-```ts
-stage("approve-pr-comments", {
-  agent: "pr-review-composer",
-  completion: "tool_signal",
-  signals: ["complete"],
-  pauseAfter: {
-    prompt: "Review the proposed comments above. Approve to post them to GitHub.",
-    hardGate: true,
-  },
-});
-```
+For critical actions, model the approval as a checkpoint plus an explicit follow-up stage. Lattice also requests OpenCode's native `lattice` permission for continue, accept, abort, and reset actions when the host supports permission prompts.
 
-A hard gate refuses `lattice_approve` (and `lattice_retry`) unless the user literally types `/lattice-approve` (or `/lattice-retry`) in the opencode TUI. The plugin observes the slash command through opencode's `command.execute.before` hook and stamps a short-lived token on the active instance; the release tool consumes the token to proceed. Orchestrator tool calls don't carry this signal, so they can't proxy the release.
+## Fail Rewinds
 
-Hard gates are the right choice when the cost of a false auto-proceed is material (irreversible action, PR posted to the wrong people, destructive filesystem change). Soft pauses remain fine for "review this plan, come back when ready."
-
-## Reject rewinds
-
-When a downstream review stage emits `reject`, lattice rewinds the pipeline back to a target stage so it can address the findings. The target is chosen in this order:
+When a downstream review stage emits `fail` or `blocked`, lattice rewinds the pipeline back to a target stage so it can address the findings. The target is chosen in this order:
 
 1. If any upstream stage has `isRewindTarget: true`, the nearest such stage is the target.
-2. Otherwise, the legacy rule fires: rewind to the nearest upstream stage whose agent is literally named `implementor`.
-3. If neither applies, lattice rewinds to the rejected stage itself.
+2. Otherwise, lattice retries the failed or blocked stage itself.
 
-Mark a rewind target explicitly when the stage doing the work isn't named `implementor` — e.g. a ticket-authoring stage, a research stage, anything the orchestrator shouldn't share a name with:
+Mark a rewind target explicitly when a downstream reviewer should send work back to an earlier stage:
 
 ```ts
 stage("author-ticket", {
   agent: "ticket-author",
-  completion: "tool_signal",
+  completion: "signal",
   signals: ["complete"],
   isRewindTarget: true,
   maxRewinds: 2, // optional cap
 });
 ```
 
-`maxRewinds` bounds the rewind loop. When the cap is reached, lattice leaves the pipeline paused with a message pointing the user at `/lattice-proceed` (accept the rejection and advance) or `/lattice-abort`. Without a cap, the loop runs until the orchestrator's ack budget or wall-clock budget runs out — which is almost never the right failure mode for a stuck pipeline.
+`maxRewinds` bounds the rewind loop. When the cap is reached, lattice leaves the pipeline paused with a message pointing the user at `/lattice accept` (accept the failure and advance) or `/lattice abort`. Without a cap, the loop runs until the orchestrator's ack budget or wall-clock budget runs out — which is almost never the right failure mode for a stuck pipeline.
 
 ## Pipeline Composition
 
@@ -170,7 +154,7 @@ Use `expand` when one planning stage writes a manifest and the next part of the 
 ```ts
 stage("build-slices", {
   agent: "implementor",
-  completion: "tool_signal",
+  completion: "signal",
   signals: ["complete", "blocked"],
   expand: {
     from: ".lattice/slices.json",
@@ -180,9 +164,9 @@ stage("build-slices", {
       id: "build-{{index}}-{{id}}",
       type: "stage",
       agent: "implementor",
-      completion: "tool_signal",
+      completion: "signal",
       signals: ["complete", "blocked"],
-      fork: false,
+      context: "isolated",
       skills: { dynamic: true, max: 3 },
       prompt: "Implement {{title}} using {{file}} as the slice brief. Keep {{manifest.invariant}} true.",
     },
@@ -213,4 +197,4 @@ Expansion details:
 
 ## Result
 
-A pipeline with `name: "quick-fix"` registers a `/quick-fix <goal>` slash command automatically. You can verify it loaded via `/lattice-status`.
+A pipeline with `name: "quick-fix"` registers a `/quick-fix <goal>` slash command automatically. You can verify it loaded via `/lattice status`.

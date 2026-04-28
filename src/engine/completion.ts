@@ -8,9 +8,9 @@ export interface CompletionContext {
 
 export interface CompletionResult {
   complete: boolean;
-  verdict?: "approve" | "reject" | "blocked";
+  verdict?: "pass" | "fail" | "blocked";
   summary?: string;
-  /** The raw signal emitted (for tool_signal). Absent for `idle` completion. */
+  /** The raw signal emitted for signal-based completion. Absent for `idle` completion. */
   signal?: SignalVerdict;
 }
 
@@ -29,7 +29,7 @@ async function checkIdle(): Promise<CompletionResult> {
   return { complete: true, summary: "Session idle" };
 }
 
-async function checkToolSignal(ctx: CompletionContext): Promise<CompletionResult> {
+async function checkSignal(ctx: CompletionContext): Promise<CompletionResult> {
   const path = `${ctx.signalsDir}/${ctx.stageId}.json`;
   let raw: string;
   try {
@@ -40,11 +40,11 @@ async function checkToolSignal(ctx: CompletionContext): Promise<CompletionResult
 
   const signal = JSON.parse(raw) as Signal;
 
-  if (signal.status === "approve") {
-    return { complete: true, verdict: "approve", signal: "approve", summary: signal.reason ?? "Approved" };
+  if (signal.status === "pass") {
+    return { complete: true, verdict: "pass", signal: "pass", summary: signal.reason ?? "Passed" };
   }
-  if (signal.status === "reject") {
-    return { complete: true, verdict: "reject", signal: "reject", summary: signal.reason ?? "Rejected" };
+  if (signal.status === "fail") {
+    return { complete: true, verdict: "fail", signal: "fail", summary: signal.reason ?? "Failed" };
   }
   if (signal.status === "blocked") {
     return { complete: true, verdict: "blocked", signal: "blocked", summary: signal.reason ?? "Blocked" };
@@ -55,7 +55,7 @@ async function checkToolSignal(ctx: CompletionContext): Promise<CompletionResult
 
 const checkers: Record<CompletionMethod, Checker> = {
   idle: checkIdle,
-  tool_signal: checkToolSignal,
+  signal: checkSignal,
 };
 
 export function checkCompletion(method: CompletionMethod, ctx: CompletionContext): Promise<CompletionResult> {
