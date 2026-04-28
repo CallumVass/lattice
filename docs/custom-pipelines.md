@@ -183,7 +183,8 @@ stage("build-slices", {
       completion: "tool_signal",
       signals: ["complete", "blocked"],
       fork: false,
-      prompt: "Implement {{title}} using {{file}} as the slice brief.",
+      skills: { dynamic: true, max: 3 },
+      prompt: "Implement {{title}} using {{file}} as the slice brief. Keep {{manifest.invariant}} true.",
     },
   },
 });
@@ -195,7 +196,8 @@ Manifest example:
 {
   "slices": [
     { "index": 1, "id": "auth", "title": "Authentication", "file": ".lattice/slices/01-auth.md" }
-  ]
+  ],
+  "invariant": "public APIs remain backwards-compatible"
 }
 ```
 
@@ -205,8 +207,9 @@ Expansion details:
 - `arrayPath` is a dot-separated path to the manifest array, such as `slices` or `plan.slices`.
 - `maxItems` is required for safety and is capped at `50` by the schema.
 - `template` is validated as a normal stage definition after rendering.
-- Template strings can reference manifest item fields with `{{field}}`. Lattice also provides `{{position}}`, a 1-based array position.
+- Template strings can reference manifest item fields with `{{field}}`. Lattice also provides `{{position}}`, a 1-based array position, and `{{manifest.path}}` for values elsewhere in the manifest.
 - Rendered stage ids are normalized to lowercase kebab-case and must be unique.
+- If the template includes `skills: { dynamic: true }`, skill selection runs separately for each rendered stage after interpolation. The rendered stage id and prompt are used for scoring, so different manifest items can receive different dynamic skills even though they came from the same placeholder.
 
 ## Result
 
