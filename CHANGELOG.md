@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.9.0](https://github.com/CallumVass/lattice/compare/lattice-v2.8.0...lattice-v2.9.0) (2026-04-28)
+
+
+### Features
+
+* **pipelines:** expose manifest context to expanded stages ([41761ac](https://github.com/CallumVass/lattice/commit/41761acd2fbbdb78a5cc28c74a4192fdf53e893d))
+
 ## [2.8.0](https://github.com/CallumVass/lattice/compare/lattice-v2.7.0...lattice-v2.8.0) (2026-04-27)
 
 
