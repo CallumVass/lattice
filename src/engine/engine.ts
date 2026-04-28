@@ -70,6 +70,7 @@ async function renderExpandedStages(stageDef: StageDefinition, projectDir: strin
     }
     const rendered = renderTemplateValue(expansion.template, {
       ...(item as Record<string, unknown>),
+      manifest,
       position: position + 1,
     });
     const parsed = stageDefinitionSchema.parse(rendered);
@@ -92,10 +93,31 @@ function readArrayPath(value: unknown, path: string): unknown[] {
 
 function renderTemplateValue(value: unknown, item: Record<string, unknown>): unknown {
   if (typeof value === "string")
-    return value.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_, key: string) => String(item[key] ?? ""));
+    return value.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_, key: string) =>
+      formatTemplateValue(readTemplatePath(item, key)),
+    );
   if (Array.isArray(value)) return value.map((entry) => renderTemplateValue(entry, item));
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, renderTemplateValue(entry, item)]));
+}
+
+function readTemplatePath(value: Record<string, unknown>, path: string): unknown {
+  let current: unknown = value;
+  for (const part of path.split(".")) {
+    if (!current || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[part];
+  }
+  return current;
+}
+
+function formatTemplateValue(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  if (Array.isArray(value)) {
+    if (value.every((entry) => typeof entry === "string")) return value.map((entry) => `- ${entry}`).join("\n");
+    return JSON.stringify(value, null, 2);
+  }
+  if (typeof value === "object") return JSON.stringify(value, null, 2);
+  return String(value);
 }
 
 function sanitizeStageId(id: string): string {

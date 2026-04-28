@@ -197,6 +197,50 @@ describe("dynamic stage expansion", () => {
     expect(buildStageAction(instance, effectivePipeline(instance, flat))?.stageId).toBe("build-slice-1-auth-setup");
   });
 
+  it("renders manifest-level metadata into expanded stage templates", async () => {
+    await writeFile(
+      join(projectDir, "manifest.json"),
+      JSON.stringify({
+        globalInvariants: ["Preserve existing API behaviour", "All writes must be tenant scoped"],
+        slices: [{ index: 1, id: "tenant-writes", title: "Tenant writes", file: "slices/01.md" }],
+      }),
+    );
+    const p = pipeline("dynamic", {
+      stages: [
+        {
+          id: "build-slices",
+          type: "stage",
+          agent: "build",
+          completion: "tool_signal",
+          signals: ["complete"],
+          fork: false,
+          pauseAfter: false,
+          isRewindTarget: false,
+          expand: {
+            from: "manifest.json",
+            arrayPath: "slices",
+            maxItems: 4,
+            template: {
+              id: "build-{{id}}",
+              type: "stage",
+              agent: "build",
+              completion: "tool_signal",
+              signals: ["complete"],
+              prompt: "Read {{file}}. Global invariants:\n{{manifest.globalInvariants}}",
+            },
+          },
+        },
+      ],
+    });
+    const flat = flattenPipeline(p, registryOf(p));
+    const { instance } = await startPipeline(flat, "ship", engineConfig());
+
+    const expanded = await expandCurrentStageIfNeeded(instance, flat, engineConfig());
+
+    expect(expanded.stages[0]?.prompt).toContain("- Preserve existing API behaviour");
+    expect(expanded.stages[0]?.prompt).toContain("- All writes must be tenant scoped");
+  });
+
   it("refuses manifests that exceed maxItems", async () => {
     await writeFile(join(projectDir, "manifest.json"), JSON.stringify({ slices: [{ id: "a" }, { id: "b" }] }));
     const p = pipeline("dynamic", {
