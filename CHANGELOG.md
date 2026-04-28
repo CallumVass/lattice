@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.0.0](https://github.com/CallumVass/lattice/compare/lattice-v2.9.0...lattice-v3.0.0) (2026-04-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* **plugin:** removes legacy /lattice-* commands, individual lattice control tools, hard gates, post-hooks, and old stage schema names in favor of /lattice, lattice_control, explicit pause state, context, signal, pass, and fail.
+
+### Features
+
+* **plugin:** consolidate lattice control UX ([2552b59](https://github.com/CallumVass/lattice/commit/2552b5922dfd17bd922200b3b40eb7fce46b7daa))
+
 ## [2.9.0](https://github.com/CallumVass/lattice/compare/lattice-v2.8.0...lattice-v2.9.0) (2026-04-28)
 
 
