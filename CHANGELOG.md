@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.2](https://github.com/CallumVass/lattice/compare/lattice-v3.0.1...lattice-v3.0.2) (2026-04-29)
+
+
+### Bug Fixes
+
+* include opencode plugin runtime dependency ([4e4033c](https://github.com/CallumVass/lattice/commit/4e4033c21220928ee77bcfe7420a7617b0a3f509))
+
 ## [3.0.1](https://github.com/CallumVass/lattice/compare/lattice-v3.0.0...lattice-v3.0.1) (2026-04-29)
 
 
