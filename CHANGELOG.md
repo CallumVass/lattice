@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.3](https://github.com/CallumVass/lattice/compare/lattice-v3.0.2...lattice-v3.0.3) (2026-04-29)
+
+
+### Bug Fixes
+
+* **plugin:** schedule stage after pipeline start ([ae04418](https://github.com/CallumVass/lattice/commit/ae04418007cedba1090ab93b953d34747c9e40c7))
+
 ## [3.0.2](https://github.com/CallumVass/lattice/compare/lattice-v3.0.1...lattice-v3.0.2) (2026-04-29)
 
 
