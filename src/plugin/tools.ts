@@ -146,6 +146,9 @@ async function runPipeline(
     state.parentSessionId = context.sessionID;
     const result = await startPipeline(flat, goal, state.engineConfig);
     state.activeInstance = result.instance;
+    if (result.instance.status === "running") {
+      await deps.scheduleCurrentStage?.();
+    }
 
     log.info(`Started pipeline "${pipeline}" - goal: ${goal}`);
 
