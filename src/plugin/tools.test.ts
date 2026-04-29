@@ -89,8 +89,9 @@ describe("createLatticeControlTool", () => {
     });
     const registry = registryOf(definition);
     const state = makeState(registry);
+    const scheduleCurrentStage = vi.fn(async () => {});
 
-    const result = await createLatticeControlTool(deps(state)).execute(
+    const result = await createLatticeControlTool(deps(state, { scheduleCurrentStage })).execute(
       { action: "run", pipeline: "review", goal: "Review PR #12" },
       toolContext(),
     );
@@ -98,6 +99,7 @@ describe("createLatticeControlTool", () => {
     expect(result).toContain('Pipeline "review" started.');
     expect(state.parentSessionId).toBe("session-1");
     expect(state.activeInstance?.pipelineName).toBe("review");
+    expect(scheduleCurrentStage).toHaveBeenCalledTimes(1);
 
     const persisted = await readFile(
       join(projectDir, ".lattice", "state", `${state.activeInstance?.id}.json`),
