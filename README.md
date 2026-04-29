@@ -77,7 +77,7 @@ Lattice exposes one framework command, independent of your pipelines:
 - `docs/install.md`: setup and plugin registration
 - `docs/run-a-pipeline.md`: running a pipeline, pauses, retries
 - `docs/custom-pipelines.md`: authoring a pipeline, including dynamic stage expansion
-- `docs/configuration.md`: overriding agents, stages, and skill paths
+- `docs/configuration.md`: overriding agents, stages, skill paths, and model selection
 - `docs/skills.md`: skill discovery and selection
 - `docs/state-and-completion.md`: `.lattice/` files, completion methods, retry behavior
 
