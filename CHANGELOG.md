@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.1](https://github.com/CallumVass/lattice/compare/lattice-v3.0.0...lattice-v3.0.1) (2026-04-29)
+
+
+### Bug Fixes
+
+* **plugin:** improve pause guidance questions ([9a53090](https://github.com/CallumVass/lattice/commit/9a530903e6a21c7a06302996759427dda2ac17ed))
+
 ## [3.0.0](https://github.com/CallumVass/lattice/compare/lattice-v2.9.0...lattice-v3.0.0) (2026-04-28)
 
 
