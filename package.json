@@ -43,12 +43,12 @@
     "access": "public"
   },
   "dependencies": {
-    "effect": "^3.19.7",
+    "effect": "4.0.0-beta.48",
     "zod": "^4.1.12"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.10",
-    "@opencode-ai/plugin": "latest",
+    "@opencode-ai/plugin": "1.4.8",
     "@types/node": "^25.6.0",
     "knip": "^6.3.0",
     "tsup": "^8.5.0",
