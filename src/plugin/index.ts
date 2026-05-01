@@ -1,8 +1,18 @@
+// pattern: Imperative Shell
+
+import { readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Plugin } from "@opencode-ai/plugin";
 import { loadConfig } from "../config/loader.js";
-import { createOpencodeSessionProvider, findActiveInstance, flattenPipeline, loadPipelines } from "../engine/index.js";
+import {
+  cleanSignals,
+  createOpencodeSessionProvider,
+  findActiveInstance,
+  flattenPipeline,
+  loadPipelines,
+  startPipeline,
+} from "../engine/index.js";
 import { createOpencodeScoringProvider, scanSkills } from "../skills/index.js";
 import { createEventHandler } from "./events.js";
 import { createLogger } from "./logger.js";
@@ -12,6 +22,12 @@ import { AgentTracker, buildSystemTransform, SkillStore } from "./system-transfo
 import { createLatticeControlTool, createLatticeSignalTool } from "./tools.js";
 
 const PIPELINE_DIR_NAME = "lattice-pipelines";
+const AUTOSTART_PATH = join(".lattice", "autostart.json");
+
+interface AutostartRequest {
+  pipeline: string;
+  goal: string;
+}
 
 interface CommandRegistrationConfig {
   command?: Record<
@@ -117,7 +133,49 @@ const server: Plugin = async ({ client, directory }) => {
     await executeStageAction(instance, state.parentSessionId, flat, stageRunnerDeps);
   };
 
+  let autostartInFlight = false;
+
+  async function readAutostartRequest(): Promise<AutostartRequest | undefined> {
+    try {
+      const raw = await readFile(join(directory, AUTOSTART_PATH), "utf8");
+      const parsed = JSON.parse(raw) as Partial<AutostartRequest>;
+      if (typeof parsed.pipeline === "string" && typeof parsed.goal === "string") {
+        return { pipeline: parsed.pipeline, goal: parsed.goal };
+      }
+      log.warn(`${AUTOSTART_PATH} is invalid; expected { pipeline, goal }`);
+    } catch {
+      return undefined;
+    }
+    return undefined;
+  }
+
+  async function tryAutostart(sessionId: string): Promise<void> {
+    if (autostartInFlight || state.activeInstance) return;
+    autostartInFlight = true;
+    try {
+      const request = await readAutostartRequest();
+      if (!request || state.activeInstance) return;
+
+      await cleanSignals(directory);
+      const flat = await getFlattened(request.pipeline);
+      state.parentSessionId = sessionId;
+      const result = await startPipeline(flat, request.goal, state.engineConfig);
+      state.activeInstance = result.instance;
+      await rm(join(directory, AUTOSTART_PATH), { force: true });
+      log.info(`Autostarted pipeline "${request.pipeline}" - goal: ${request.goal}`);
+      if (result.instance.status === "running") {
+        await scheduleCurrentStage();
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error(`Failed to autostart pipeline: ${msg}`);
+    } finally {
+      autostartInFlight = false;
+    }
+  }
+
   const toolDeps = { state, getFlattened, selectSkillsForStage: selectSkillsForActiveStage, scheduleCurrentStage, log };
+  const eventHandler = createEventHandler({ ...stageRunnerDeps, state, getFlattened });
 
   return {
     tool: {
@@ -148,7 +206,13 @@ const server: Plugin = async ({ client, directory }) => {
 
     "experimental.chat.system.transform": buildSystemTransform(latticeConfig, agentTracker, skillStore),
 
-    event: createEventHandler({ ...stageRunnerDeps, state, getFlattened }),
+    async event(input) {
+      if (input.event.type === "session.created" || input.event.type === "session.updated") {
+        const sessionId = (input.event as { properties?: { sessionID?: string } }).properties?.sessionID;
+        if (sessionId) await tryAutostart(sessionId);
+      }
+      return eventHandler(input);
+    },
   };
 };
 

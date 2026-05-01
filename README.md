@@ -64,6 +64,8 @@ Lattice exposes one framework command, independent of your pipelines:
 - `/lattice abort` — stop the active pipeline
 - `/lattice reset` — recover a pipeline stuck in `running` state; marks the stuck stage pending and pauses the pipeline so retry can restart it
 
+Lattice also consumes `.lattice/autostart.json` on session creation or update. Write `{ "pipeline": "<name>", "goal": "<goal>" }` there to start a pipeline automatically in the next available session; the file is removed after a successful start.
+
 ## First Use
 
 1. Author a pipeline file and drop it in one of the pipeline paths above.
