@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.2.0](https://github.com/CallumVass/lattice/compare/lattice-v3.1.0...lattice-v3.2.0) (2026-05-01)
+
+
+### Features
+
+* **plugin:** autostart pipeline from session request ([dba3133](https://github.com/CallumVass/lattice/commit/dba3133724b974ae627cd4688bd46a257c8295d9))
+
 ## [3.1.0](https://github.com/CallumVass/lattice/compare/lattice-v3.0.3...lattice-v3.1.0) (2026-05-01)
 
 
