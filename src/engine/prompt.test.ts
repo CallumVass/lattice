@@ -67,4 +67,46 @@ describe("composePrompt", () => {
 
     expect(prompt).toContain("Work on feature-42 now.");
   });
+
+  it("omits completed stages when completedContext is none", () => {
+    const p = pipeline("slice", {
+      stages: [
+        stage("build-slice", {
+          agent: "worker",
+          completion: "signal",
+          signals: ["complete"],
+          completedContext: "none",
+        }),
+      ],
+    });
+    const prompt = composePrompt({
+      goal: "work",
+      completedStages: [{ id: "plan", agent: "planner", status: "completed", summary: "secret summary" }],
+      currentStage: p.stages[0] as Extract<(typeof p.stages)[number], { type: "stage" }>,
+    });
+
+    expect(prompt).not.toContain("## Completed Stages");
+    expect(prompt).not.toContain("secret summary");
+  });
+
+  it("renders compact completed stages when completedContext is summaries", () => {
+    const p = pipeline("integration", {
+      stages: [
+        stage("final", {
+          agent: "worker",
+          completion: "signal",
+          signals: ["complete"],
+          completedContext: "summaries",
+        }),
+      ],
+    });
+    const prompt = composePrompt({
+      goal: "work",
+      completedStages: [{ id: "plan", agent: "planner", status: "completed", summary: "planned" }],
+      currentStage: p.stages[0] as Extract<(typeof p.stages)[number], { type: "stage" }>,
+    });
+
+    expect(prompt).toContain("- **plan**: planned");
+    expect(prompt).not.toContain("(planner): planned");
+  });
 });

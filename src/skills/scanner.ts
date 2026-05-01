@@ -1,3 +1,5 @@
+// pattern: Imperative Shell
+
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -59,19 +61,18 @@ async function scanDir(dir: string): Promise<DiscoveredSkill[]> {
   if (!(await isDirectory(dir))) return [];
 
   const skills: DiscoveredSkill[] = [];
-  const entries = await readdir(dir, { recursive: true });
+  const entries = await readdir(dir, { withFileTypes: true });
 
   for (const entry of entries) {
-    if (!entry.endsWith(".md")) continue;
+    if (!entry.isDirectory()) continue;
 
-    const filePath = join(dir, entry);
+    const filePath = join(dir, entry.name, "SKILL.md");
     try {
       const raw = await readFile(filePath, "utf-8");
       const parsed = parseFrontmatter(raw);
-      const fallbackName = entry.replace(/\.md$/, "").replace(/\//g, "-");
 
       skills.push({
-        name: parsed.name ?? fallbackName,
+        name: parsed.name ?? entry.name,
         description: parsed.description ?? "",
         filePath,
         content: raw,

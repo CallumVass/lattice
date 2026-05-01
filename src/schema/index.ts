@@ -14,6 +14,7 @@ export type {
   PipelineRef,
   SignalVerdict,
   SkillsConfig,
+  StageCompletedContext,
   StageContext,
   StageDefinition,
   StageEntry,

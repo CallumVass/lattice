@@ -16,6 +16,7 @@ describe("stage", () => {
       completion: "signal",
       signals: ["complete"],
       context: "isolated",
+      completedContext: "full",
       pauseAfter: false,
       isRewindTarget: false,
     });
@@ -53,6 +54,17 @@ describe("stage", () => {
     });
 
     expect(s.context).toBe("shared");
+  });
+
+  it("creates a stage with compact completed context", () => {
+    const s = stage("implement", {
+      agent: "implementor",
+      completion: "signal",
+      signals: ["complete"],
+      completedContext: "summaries",
+    });
+
+    expect(s.completedContext).toBe("summaries");
   });
 
   it("creates a stage with skills", () => {

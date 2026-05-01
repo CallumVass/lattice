@@ -149,6 +149,7 @@ describe("dynamic stage expansion", () => {
           completion: "signal",
           signals: ["complete"],
           context: "isolated",
+          completedContext: "full",
           pauseAfter: false,
           isRewindTarget: false,
           expand: {
@@ -191,6 +192,7 @@ describe("dynamic stage expansion", () => {
           completion: "signal",
           signals: ["complete"],
           context: "isolated",
+          completedContext: "full",
           pauseAfter: false,
           isRewindTarget: false,
           expand: {

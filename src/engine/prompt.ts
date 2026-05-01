@@ -1,4 +1,6 @@
-import type { SignalVerdict, StageDefinition, StageInstance } from "../schema/index.js";
+// pattern: Functional Core
+
+import type { SignalVerdict, StageCompletedContext, StageDefinition, StageInstance } from "../schema/index.js";
 
 interface PromptContext {
   goal: string;
@@ -20,11 +22,10 @@ export function composePrompt(ctx: PromptContext): string {
 
   parts.push(`## Goal\n${ctx.goal}`);
 
-  if (ctx.completedStages.length > 0) {
+  const completedContext = ctx.currentStage.completedContext ?? "full";
+  if (completedContext !== "none" && ctx.completedStages.length > 0) {
     parts.push("## Completed Stages");
-    for (const s of ctx.completedStages) {
-      parts.push(`- **${s.id}** (${s.agent}): ${s.summary ?? "completed"}`);
-    }
+    parts.push(renderCompletedStages(ctx.completedStages, completedContext));
   }
 
   if (ctx.resumeContext) {
@@ -52,4 +53,14 @@ export function composePrompt(ctx: PromptContext): string {
   }
 
   return parts.join("\n\n");
+}
+
+function renderCompletedStages(stages: StageInstance[], mode: Exclude<StageCompletedContext, "none">): string {
+  return stages
+    .map((s) => {
+      const summary = s.summary ?? "completed";
+      if (mode === "summaries") return `- **${s.id}**: ${summary}`;
+      return `- **${s.id}** (${s.agent}): ${summary}`;
+    })
+    .join("\n");
 }
