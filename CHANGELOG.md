@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.1.0](https://github.com/CallumVass/lattice/compare/lattice-v3.0.3...lattice-v3.1.0) (2026-05-01)
+
+
+### Features
+
+* support completed context modes and skill entrypoints ([6b86563](https://github.com/CallumVass/lattice/commit/6b86563c13b46eb5bfb77e394924a8171f8b0448))
+
 ## [3.0.3](https://github.com/CallumVass/lattice/compare/lattice-v3.0.2...lattice-v3.0.3) (2026-04-29)
 
 
