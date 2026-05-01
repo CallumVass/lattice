@@ -6,6 +6,7 @@ Lattice persists runtime data in `.lattice/` inside the target project.
 
 ```text
 .lattice/
+├── autostart.json   # optional one-shot request to start a pipeline in the next session
 ├── config.jsonc     # your config
 ├── signals/         # stage outcome signals written by lattice_signal
 └── state/           # persisted pipeline instances (one file per run)
@@ -14,6 +15,8 @@ Lattice persists runtime data in `.lattice/` inside the target project.
 `.lattice/` is per-project runtime state and is intended to be gitignored. Lattice adds it to `.gitignore` on first write if it is not already listed.
 
 Pipelines can write any other files they need (e.g. plans, drafts) under `.lattice/` or wherever their stage prompts direct.
+
+`.lattice/autostart.json` is a transient one-shot request with `{ "pipeline": "<name>", "goal": "<goal>" }`. Lattice removes it after starting the pipeline successfully.
 
 When a pipeline uses dynamic stage expansion, the persisted instance also records `runtimeStages`. This is the expanded stage list for that run only, so retries and approvals continue against the generated stages instead of re-reading the original placeholder definition.
 

@@ -16,6 +16,16 @@ Every pipeline you author gets a slash command matching its `name` field. Drop a
 
 The goal can be free text, an issue number, or a URL — it's passed straight through to the first stage.
 
+## Autostart From File
+
+To start a pipeline as soon as OpenCode creates or updates a session, write `.lattice/autostart.json` in the project:
+
+```json
+{ "pipeline": "<name>", "goal": "<goal>" }
+```
+
+When there is no active pipeline, Lattice reads that file, clears stale signals, starts the named pipeline with the given goal, and removes the file after a successful start. Invalid files are ignored with a warning.
+
 ## How A Run Proceeds
 
 1. `/<pipeline-name> <goal>` invokes `lattice_control` with action `run`.
