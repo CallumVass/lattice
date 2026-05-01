@@ -1,8 +1,11 @@
+// pattern: Functional Core
+
 import type {
   PauseAfter,
   PipelineRef,
   SignalVerdict,
   SkillsConfig,
+  StageCompletedContext,
   StageContext,
   StageDefinition,
 } from "../schema/index.js";
@@ -10,6 +13,7 @@ import type {
 interface BaseStageOptions {
   agent: string;
   context?: StageContext;
+  completedContext?: StageCompletedContext;
   skills?: Partial<SkillsConfig>;
   prompt?: string;
   pauseAfter?: PauseAfter;
@@ -45,6 +49,7 @@ export function stage(id: string, options: StageOptions): StageDefinition {
     agent: options.agent,
     completion: options.completion,
     context: options.context ?? "isolated",
+    completedContext: options.completedContext ?? "full",
     pauseAfter: options.pauseAfter ?? false,
     isRewindTarget: options.isRewindTarget ?? false,
     ...(options.completion === "signal" && { signals: options.signals }),

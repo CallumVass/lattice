@@ -1,3 +1,5 @@
+// pattern: Functional Core
+
 import { z } from "zod/v4";
 
 export const completionMethodSchema = z.enum(["idle", "signal"]);
@@ -11,6 +13,10 @@ export type SignalVerdict = z.infer<typeof signalVerdictSchema>;
 export const stageContextSchema = z.enum(["isolated", "shared"]);
 
 export type StageContext = z.infer<typeof stageContextSchema>;
+
+export const stageCompletedContextSchema = z.enum(["full", "summaries", "none"]);
+
+export type StageCompletedContext = z.infer<typeof stageCompletedContextSchema>;
 
 export const pauseAfterSchema = z.union([
   z.boolean(),
@@ -48,6 +54,12 @@ export const stageDefinitionSchema = z
     completion: completionMethodSchema,
     signals: z.array(signalVerdictSchema).optional(),
     context: stageContextSchema.default("isolated"),
+    /**
+     * Controls how much prior-stage completion context is included in this
+     * stage's prompt. Use "none" for fresh-context slice stages that read
+     * explicit handoff files instead of accumulated summaries.
+     */
+    completedContext: stageCompletedContextSchema.default("full"),
     skills: skillsConfigSchema.optional(),
     prompt: z.string().optional(),
     /**

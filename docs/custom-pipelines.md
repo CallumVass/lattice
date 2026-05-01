@@ -59,6 +59,7 @@ Tradeoff: no autocomplete, no compile-time check that `signals` matches the comp
 - `completion`: `idle` or `signal`
 - `signals`: **required for `signal` stages**. Declares the verdicts this stage may emit. Any of `"complete" | "pass" | "fail" | "blocked"`. Tailors the engine-injected signalling instructions the agent sees, and `lattice_signal` refuses undeclared statuses.
 - `context`: `"isolated"` starts a cold subtask; `"shared"` reuses the current conversation context. Defaults to `"isolated"`.
+- `completedContext`: `"full" | "summaries" | "none"` — controls how much prior-stage completion context is injected into this stage's prompt. Defaults to `"full"`. Use `"none"` for fresh-context slice stages that read explicit handoff files instead of accumulated summaries.
 - `pauseAfter`: `boolean | { prompt?: string }` — pause the pipeline after this stage completes. `true` renders a generic checkpoint message; `{ prompt }` renders the given body verbatim (with `{{summary}}` / `{{reason}}` replaced by the stage's completion summary). The pause is released with `/lattice continue`.
 - `expand`: dynamic stage expansion config — replaces this placeholder stage with stages rendered from a project-local JSON manifest when the placeholder becomes current. See [Dynamic stage expansion](#dynamic-stage-expansion).
 - `skills`: optional pinned or dynamic skill selection (see [`skills.md`](skills.md))

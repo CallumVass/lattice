@@ -1,6 +1,6 @@
 # Skills
 
-Skills are markdown files that add targeted instructions to an agent's system prompt. Lattice uses OpenCode's native skill format.
+Skills are markdown files that add targeted instructions to an agent's system prompt. Lattice uses OpenCode's native skill format. Lattice injects only each skill folder's `SKILL.md`; reference markdown files stay available in the workspace for agents to read when the skill asks for them.
 
 ## Where Lattice Looks
 
