@@ -42,7 +42,7 @@ Project paths override global ones with the same name.
 
 1. User runs a slash command registered by one of your pipelines (e.g. `/review <goal>`).
 2. Lattice creates a pipeline instance in `.lattice/state/`.
-3. It launches the first stage and waits for the stage's completion rule.
+3. It launches the first stage after the control command turn is idle, then waits for the stage's completion rule.
 4. When the stage completes, it advances automatically.
 5. If a stage has `pauseAfter`, the pipeline pauses for user sign-off through a question gate or `/lattice continue`.
 6. If a stage returns `fail` or `blocked`, the pipeline pauses until the user chooses retry, accept, or abort through the question gate or `/lattice` commands.

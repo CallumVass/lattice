@@ -20,7 +20,7 @@ The goal can be free text, an issue number, or a URL — it's passed straight th
 
 1. `/<pipeline-name> <goal>` invokes `lattice_control` with action `run`.
 2. Lattice creates an instance under `.lattice/state/<id>.json`.
-3. The first stage runs. If `context: "isolated"`, it starts as a cold subtask; if `context: "shared"`, it injects into the current session.
+3. After the control command turn becomes idle, the first stage runs. If `context: "isolated"`, it starts as a cold subtask; if `context: "shared"`, it injects into the current session.
 4. The stage signals its outcome via the `lattice_signal` tool (`complete`, `pass`, `fail`, `blocked`).
 5. Lattice advances to the next stage, or pauses if `pauseAfter: true` or the signal is `fail`/`blocked`.
 6. When the last stage signals `complete`, the pipeline completes and the active instance is cleared.

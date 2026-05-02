@@ -3,6 +3,15 @@ import type { ModelOverride, SessionDispatchResult, SessionProvider } from "./se
 
 type Client = ReturnType<typeof createOpencodeClient>;
 
+type ChildSession = {
+  id: string;
+  title?: string;
+  time?: { created?: number };
+};
+
+const subtaskSessionWaitMs = 5_000;
+const subtaskSessionPollMs = 100;
+
 function errorMessage(error: unknown): string {
   if (error && typeof error === "object" && "data" in error) {
     const data = (error as { data: unknown }).data;
@@ -11,6 +20,42 @@ function errorMessage(error: unknown): string {
     }
   }
   return JSON.stringify(error);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function childSessions(client: Client, sessionId: string, directory: string): Promise<ChildSession[]> {
+  const { data, error } = await client.session.children({ path: { id: sessionId }, query: { directory } });
+  if (error || !data) return [];
+  return data.map((session) => ({ id: session.id, title: session.title, time: session.time }));
+}
+
+async function waitForSubtaskSessionId(
+  client: Client,
+  parentSessionId: string,
+  directory: string,
+  description: string,
+  beforeIds: Set<string>,
+  startedAt: number,
+): Promise<string | undefined> {
+  const deadline = Date.now() + subtaskSessionWaitMs;
+
+  while (Date.now() < deadline) {
+    const candidates = (await childSessions(client, parentSessionId, directory))
+      .filter((session) => !beforeIds.has(session.id))
+      .filter((session) => (session.time?.created ?? 0) >= startedAt - 1_000)
+      .sort((a, b) => (a.time?.created ?? 0) - (b.time?.created ?? 0));
+
+    const titled = candidates.find((session) => session.title?.startsWith(description));
+    if (titled) return titled.id;
+    if (candidates[0]) return candidates[0].id;
+
+    await sleep(subtaskSessionPollMs);
+  }
+
+  return undefined;
 }
 
 export function createOpencodeSessionProvider(client: Client, directory: string): SessionProvider {
@@ -44,6 +89,8 @@ export function createOpencodeSessionProvider(client: Client, directory: string)
       description: string,
       model?: ModelOverride,
     ): Promise<SessionDispatchResult> {
+      const startedAt = Date.now();
+      const beforeIds = new Set((await childSessions(client, sessionId, directory)).map((session) => session.id));
       // Subtasks carry their model inside the SubtaskPartInput — `body.model`
       // is ignored for subtasks. SubtaskPartInput.model is the right field,
       // verified against @opencode-ai/sdk types.gen.d.ts.
@@ -57,7 +104,9 @@ export function createOpencodeSessionProvider(client: Client, directory: string)
       if (error) {
         throw new Error(`Failed to inject subtask: ${errorMessage(error)}`);
       }
-      return {};
+      return {
+        sessionId: await waitForSubtaskSessionId(client, sessionId, directory, description, beforeIds, startedAt),
+      };
     },
 
     async notify(sessionId: string, message: string): Promise<void> {

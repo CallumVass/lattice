@@ -27,7 +27,9 @@ export function registerLatticeCommands(config: CommandRegistrationConfig, pipel
   for (const name of pipelineNames) {
     config.command[name] = {
       description: `Run the ${name} pipeline via lattice`,
-      template: `Use the lattice_control tool with action "run", pipeline "${name}", and goal: $ARGUMENTS`,
+      template:
+        `Use the lattice_control tool exactly once with action "run", pipeline "${name}", and goal: $ARGUMENTS. ` +
+        "After the tool call returns, stop; do not inspect status, continue, retry, abort, or begin implementation.",
     };
   }
   config.command.lattice = {
@@ -35,7 +37,8 @@ export function registerLatticeCommands(config: CommandRegistrationConfig, pipel
     template:
       "Interpret the first word of `$ARGUMENTS` as a lattice action and call the lattice_control tool. " +
       "Valid actions: status, run <pipeline> <goal>, continue [message], retry [message], accept [reason], abort, reset. " +
-      "For run, pass the pipeline and remaining text as goal. For continue/retry, pass remaining text as response. For accept, pass remaining text as reason.",
+      "For run, pass the pipeline and remaining text as goal. For continue/retry, pass remaining text as response. For accept, pass remaining text as reason. " +
+      "After the tool call returns, stop; do not take follow-up pipeline actions unless the user explicitly asked for them.",
   };
 }
 
