@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.4.3](https://github.com/CallumVass/lattice/compare/lattice-v3.4.2...lattice-v3.4.3) (2026-05-02)
+
+
+### Bug Fixes
+
+* **plugin:** wait for parent idle after isolated stage completion ([ad828c5](https://github.com/CallumVass/lattice/commit/ad828c5bc0fc1c412fdb8a51c18166e6f3376691))
+
 ## [3.4.2](https://github.com/CallumVass/lattice/compare/lattice-v3.4.1...lattice-v3.4.2) (2026-05-02)
 
 
