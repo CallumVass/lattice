@@ -88,4 +88,32 @@ describe("loadConfig", () => {
 
     expect(config.agents?.planner).toEqual({ model: "anthropic/claude-sonnet-4-20250514" });
   });
+
+  it("preserves comment markers inside strings", async () => {
+    mockReadFile.mockImplementation((path: string) => {
+      if (path.includes(".lattice/config.jsonc")) {
+        return Promise.resolve(`{
+          "agents": {
+            "planner": { "promptSuffix": "See https://example.com/docs before planning" }
+          }
+        }`);
+      }
+      return Promise.reject(new Error("ENOENT"));
+    });
+
+    const config = await loadConfig("/project");
+
+    expect(config.agents?.planner?.promptSuffix).toBe("See https://example.com/docs before planning");
+  });
+
+  it("throws on invalid config instead of silently ignoring it", async () => {
+    mockReadFile.mockImplementation((path: string) => {
+      if (path.includes(".lattice/config.jsonc")) {
+        return Promise.resolve('{ "skills": { "max": 0 } }');
+      }
+      return Promise.reject(new Error("ENOENT"));
+    });
+
+    await expect(loadConfig("/project")).rejects.toThrow("Invalid lattice config");
+  });
 });

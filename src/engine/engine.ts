@@ -151,6 +151,7 @@ export async function startPipeline(
   pipeline: FlattenedPipeline,
   goal: string,
   config: EngineConfig,
+  parentSessionId?: string,
 ): Promise<EngineResult> {
   const now = new Date().toISOString();
   const instance: PipelineInstance = {
@@ -166,6 +167,7 @@ export async function startPipeline(
     })),
     createdAt: now,
     updatedAt: now,
+    ...(parentSessionId && { parentSessionId }),
   };
 
   const pipelineOverride = config.latticeConfig.pipelines?.[pipeline.name];
@@ -217,6 +219,26 @@ export function buildStageAction(instance: PipelineInstance, pipeline: Flattened
   };
 }
 
+/** Persist the dispatch intent before calling out to opencode. */
+export async function markStageDispatching(
+  instance: PipelineInstance,
+  config: EngineConfig,
+  parentSessionId?: string,
+): Promise<string | undefined> {
+  const stageInstance = instance.stages[instance.currentStageIndex];
+  if (!stageInstance || stageInstance.status !== "pending") return undefined;
+
+  const now = new Date().toISOString();
+  const dispatchId = randomUUID();
+  stageInstance.status = "dispatching";
+  stageInstance.dispatchId = dispatchId;
+  stageInstance.dispatchedAt = now;
+  if (parentSessionId) instance.parentSessionId = parentSessionId;
+  instance.updatedAt = now;
+  await saveInstance(config.projectDir, instance);
+  return dispatchId;
+}
+
 /** Mark the current stage as running after the plugin has executed the action. */
 export async function markStageRunning(
   instance: PipelineInstance,
@@ -255,7 +277,8 @@ export async function checkStageCompletion(
   }
 
   return checkCompletion(stageDef.completion, {
-    signalsDir: join(config.projectDir, ".lattice", "signals"),
+    signalsDir: join(config.projectDir, ".lattice", "signals", instance.id),
+    legacySignalsDir: join(config.projectDir, ".lattice", "signals"),
     stageId: currentStage.id,
   });
 }

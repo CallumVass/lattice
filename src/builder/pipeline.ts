@@ -1,4 +1,4 @@
-import type { PipelineDefinition, StageEntry } from "../schema/index.js";
+import { type PipelineDefinition, pipelineDefinitionSchema, type StageEntry } from "../schema/index.js";
 
 export interface PipelineOptions {
   description?: string;
@@ -6,9 +6,9 @@ export interface PipelineOptions {
 }
 
 export function pipeline(name: string, options: PipelineOptions): PipelineDefinition {
-  return {
+  return pipelineDefinitionSchema.parse({
     name,
     ...(options.description && { description: options.description }),
     stages: options.stages,
-  };
+  });
 }

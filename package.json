@@ -13,6 +13,9 @@
     "url": "https://github.com/CallumVass/lattice/issues"
   },
   "sideEffects": false,
+  "engines": {
+    "node": ">=22"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -23,6 +26,14 @@
     "./plugin": {
       "import": "./dist/plugin/index.js",
       "types": "./dist/plugin/index.d.ts"
+    },
+    "./builder": {
+      "import": "./dist/builder/index.js",
+      "types": "./dist/builder/index.d.ts"
+    },
+    "./schema": {
+      "import": "./dist/schema/index.js",
+      "types": "./dist/schema/index.d.ts"
     }
   },
   "files": [
@@ -31,7 +42,8 @@
   "scripts": {
     "build": "tsup",
     "prepack": "npm run build",
-    "release:check": "npm run check && npm run build && npm pack --dry-run",
+    "release:check": "npm run check && npm run build && npm run smoke:package && npm pack --dry-run",
+    "smoke:package": "node scripts/smoke-package.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "biome check --error-on-warnings src/",
     "lint:fix": "biome check --fix --error-on-warnings src/",

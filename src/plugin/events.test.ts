@@ -21,7 +21,7 @@ let projectDir: string;
 
 const NO_OP_SESSIONS: SessionProvider = {
   injectPrompt: vi.fn(async () => {}),
-  injectSubtask: vi.fn(async () => {}),
+  injectSubtask: vi.fn(async () => ({})),
   notify: vi.fn(async () => {}),
   getLastAssistantMessage: vi.fn(async () => ""),
 };
@@ -77,6 +77,7 @@ async function fireIdle(handler: ReturnType<typeof createEventHandler>) {
 }
 
 interface AssistantInfoOverrides {
+  sessionID?: string;
   role?: string;
   completed?: number | undefined;
   input?: number;
@@ -99,6 +100,7 @@ async function fireAssistantMessage(
     event: {
       type: "message.updated",
       properties: {
+        sessionID: overrides.sessionID ?? "session-1",
         info: {
           role: overrides.role ?? "assistant",
           agent: overrides.agent,
@@ -380,6 +382,14 @@ describe("message.updated event handling", () => {
     expect(stageInstance?.telemetry?.tokensOut).toBe(50);
     expect(stageInstance?.telemetry?.costUSD).toBeCloseTo(0.02);
     expect(stageInstance?.telemetry?.messageCount).toBe(1);
+  });
+
+  it("ignores assistant messages from unrelated sessions", async () => {
+    const { state, handler } = await primeRunningStage();
+
+    await fireAssistantMessage(handler, { sessionID: "other-session", input: 100, output: 50, cost: 0.02 });
+
+    expect(state.activeInstance?.stages[0]?.telemetry).toBeUndefined();
   });
 
   it("seeds running stage telemetry from configured model override", async () => {

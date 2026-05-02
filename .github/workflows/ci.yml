@@ -10,6 +10,9 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [22, 24]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -17,7 +20,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: ${{ matrix.node-version }}
           cache: npm
 
       - name: Install deps
@@ -28,6 +31,9 @@ jobs:
 
       - name: Build
         run: npm run build
+
+      - name: Package smoke test
+        run: npm run smoke:package
 
       - name: Pack dry run
         run: npm pack --dry-run

@@ -7,7 +7,7 @@ Lattice persists runtime data in `.lattice/` inside the target project.
 ```text
 .lattice/
 ├── config.jsonc     # your config
-├── signals/         # stage outcome signals written by lattice_signal
+├── signals/         # stage outcome signals written by lattice_signal, namespaced by run id
 └── state/           # persisted pipeline instances (one file per run)
 ```
 
@@ -19,12 +19,12 @@ When a pipeline uses dynamic stage expansion, the persisted instance also record
 
 ## Completion Methods
 
-- `idle`: stage completes when the session goes idle.
+- `idle`: stage completes when the stage's session goes idle.
 - `signal`: completes when the agent calls `lattice_signal` with one of its declared signals: `complete`, `pass`, `fail`, or `blocked`.
 
 ## Per-Stage Telemetry
 
-Lattice subscribes to opencode's `message.updated` events and attributes assistant-turn tokens and cost to the currently-running stage. The data is persisted on each `StageInstance` under `telemetry`:
+Lattice subscribes to opencode's `message.updated` events and attributes assistant-turn tokens and cost to the currently-running stage when the event belongs to that stage's session. The data is persisted on each `StageInstance` under `telemetry`:
 
 ```ts
 telemetry?: {
@@ -47,7 +47,7 @@ telemetry?: {
 Attribution rules:
 
 - Only authoritative assistant turns (`role === "assistant"` and `time.completed` set) are counted. Partial streaming frames are skipped.
-- Telemetry is attributed to the stage at `currentStageIndex` when its status is `running`. Messages arriving outside a running stage — e.g. during `paused` gates or after completion — are dropped.
+- Telemetry is attributed to the stage at `currentStageIndex` when its status is `running` and the event session matches the stage session. Messages arriving outside a running stage — e.g. during `paused` gates, from unrelated sessions, or after completion — are dropped.
 - If opencode includes an assistant-message `agent`, telemetry is only counted when it matches the running stage's agent.
 - If a stage has an agent model override, Lattice seeds `configuredModel` and `configuredProvider` from that override and keeps `model` and `provider` pinned to the configured values. Later message metadata is recorded separately as `observedModel` and `observedProvider`.
 - If observed message metadata differs from a configured model override, Lattice logs a warning so users can spot provider fallback or alias resolution while preserving both configured and observed values.
@@ -70,7 +70,7 @@ If the pipeline is at a `pauseAfter` checkpoint, approve it through the question
 
 ## Recovering A Stuck `running` Pipeline
 
-If opencode dies or the plugin crashes while a stage is executing, the persisted instance ends up with `status: running` but no live session driving it. `/lattice retry` and `/lattice continue` both require `paused`, so the pipeline is wedged.
+If opencode dies or the plugin crashes while a stage is executing, the persisted instance can end up with `status: running` but no live session driving it. If the crash happens while dispatching a stage, Lattice restores the run as a `stuck` pause automatically. Otherwise, use `/lattice reset`.
 
 `/lattice reset` recovers from this: it marks the current running stage back to `pending` (clearing `sessionId`, `startedAt`, `completedAt`, `summary`, and `verdict`) and moves the pipeline to `paused` with pause kind `stuck`. Completed stages are untouched. Follow up with `/lattice retry` to restart the stuck stage from scratch, or `/lattice abort` to throw the run away.
 

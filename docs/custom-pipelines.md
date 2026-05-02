@@ -2,15 +2,15 @@
 
 Pipeline files live in one of two places:
 
-- `~/.config/opencode/lattice-pipelines/<name>.ts` — global, available in every project.
-- `.opencode/lattice-pipelines/<name>.ts` — project-local, overrides a global pipeline with the same `name`.
+- `~/.config/opencode/lattice-pipelines/<name>.{ts,js,mjs}` — global, available in every project.
+- `.opencode/lattice-pipelines/<name>.{ts,js,mjs}` — project-local, overrides a global pipeline with the same `name`.
 
 Each file exports a pipeline definition as its default export. The filename doesn't need to match the pipeline's `name`, but it usually does.
 
 ## Builder API (typed)
 
 ```ts
-import { pipeline, ref, stage } from "@callumvass/lattice";
+import { pipeline, ref, stage } from "@callumvass/lattice/builder";
 
 export default pipeline("quick-fix", {
   stages: [
@@ -199,3 +199,5 @@ Expansion details:
 ## Result
 
 A pipeline with `name: "quick-fix"` registers a `/quick-fix <goal>` slash command automatically. You can verify it loaded via `/lattice status`.
+
+For a complete working starter with pipeline, agents, and a skill, see [`../examples/quick-fix`](../examples/quick-fix).

@@ -39,11 +39,11 @@ Lattice discovers content from OpenCode's conventional paths. Project paths over
 
 | Content | Project path | Global path |
 | --- | --- | --- |
-| Pipelines | `.opencode/lattice-pipelines/*.ts` | `~/.config/opencode/lattice-pipelines/*.ts` |
+| Pipelines | `.opencode/lattice-pipelines/*.{ts,js,mjs}` | `~/.config/opencode/lattice-pipelines/*.{ts,js,mjs}` |
 | Agents | `.opencode/agents/*.md` | `~/.config/opencode/agents/*.md` |
 | Skills | `.opencode/skills/<name>/SKILL.md` | `~/.config/opencode/skills/<name>/SKILL.md` |
 
-A pipeline file has a default export — either the typed builder (`import { pipeline, stage } from "@callumvass/lattice"`) or a plain object. A pipeline named `my-flow` registers `/my-flow <goal>` as a slash command automatically. See [`docs/custom-pipelines.md`](docs/custom-pipelines.md).
+A pipeline file has a default export — either the typed builder (`import { pipeline, stage } from "@callumvass/lattice/builder"`) or a plain object. A pipeline named `my-flow` registers `/my-flow <goal>` as a slash command automatically. See [`docs/custom-pipelines.md`](docs/custom-pipelines.md).
 
 **If you use the typed builder**, install `@callumvass/lattice` where your pipelines live so they can resolve the import:
 
@@ -51,6 +51,8 @@ A pipeline file has a default export — either the typed builder (`import { pip
 cd ~/.config/opencode && npm install @callumvass/lattice   # for global pipelines
 cd <your-project> && npm install --save-dev @callumvass/lattice   # for project pipelines
 ```
+
+For a complete starter, copy from [`examples/quick-fix`](examples/quick-fix).
 
 ## Framework Commands
 
@@ -80,6 +82,7 @@ Lattice exposes one framework command, independent of your pipelines:
 - `docs/configuration.md`: overriding agents, stages, skill paths, and model selection
 - `docs/skills.md`: skill discovery and selection
 - `docs/state-and-completion.md`: `.lattice/` files, completion methods, retry behavior
+- `examples/quick-fix`: starter pipeline with agents and a skill
 
 ## Development
 

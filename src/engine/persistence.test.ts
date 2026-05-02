@@ -1,4 +1,4 @@
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -56,5 +56,36 @@ describe("persistence", () => {
   it("returns undefined for missing state directory", async () => {
     const active = await findActiveInstance(projectDir);
     expect(active).toBeUndefined();
+  });
+
+  it("skips corrupt state files and returns the newest valid active instance", async () => {
+    await saveInstance(projectDir, makeInstance({ id: "older", updatedAt: "2026-01-01T00:00:00.000Z" }));
+    await saveInstance(projectDir, makeInstance({ id: "newer", updatedAt: "2026-01-02T00:00:00.000Z" }));
+    await writeFile(join(projectDir, ".lattice", "state", "broken.json"), "not json");
+
+    const active = await findActiveInstance(projectDir);
+
+    expect(active?.id).toBe("newer");
+  });
+
+  it("recovers dispatching stages as stuck pauses", async () => {
+    await saveInstance(
+      projectDir,
+      makeInstance({
+        stages: [{ id: "plan", agent: "planner", status: "dispatching", dispatchId: "dispatch-1" }],
+      }),
+    );
+
+    const active = await findActiveInstance(projectDir);
+
+    expect(active?.status).toBe("paused");
+    expect(active?.pause).toMatchObject({ kind: "stuck", stageId: "plan" });
+    expect(active?.stages[0]?.status).toBe("pending");
+  });
+
+  it("adds .lattice to .gitignore on first write", async () => {
+    await saveInstance(projectDir, makeInstance());
+
+    await expect(readFile(join(projectDir, ".gitignore"), "utf-8")).resolves.toContain(".lattice/");
   });
 });

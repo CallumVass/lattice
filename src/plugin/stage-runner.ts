@@ -2,8 +2,10 @@ import type { EngineConfig, FlattenedPipeline, SessionProvider } from "../engine
 import {
   buildStageAction,
   expandCurrentStageIfNeeded,
+  markStageDispatching,
   markStageRunning,
   resolveModelOverride,
+  saveInstance,
 } from "../engine/index.js";
 import type { LatticeConfig, PipelineInstance } from "../schema/index.js";
 import { type DiscoveredSkill, type ScoringProvider, selectSkills } from "../skills/index.js";
@@ -48,12 +50,15 @@ export async function selectSkillsForStage(
   }
 
   const stageDef = pipeline.stages.find((s) => s.id === stageId);
+  const stageOverride = deps.latticeConfig.pipelines?.[pipeline.name]?.stages?.[stageId]?.skills;
+  const agentOverride = deps.latticeConfig.agents?.[agent]?.skills;
+  const skillsConfig = mergeSkillsConfig(agentOverride, stageDef?.skills, stageOverride);
 
   try {
     const selected = await selectSkills(
       deps.discoveredSkills,
       {
-        skillsConfig: stageDef?.skills,
+        skillsConfig,
         defaultMax: deps.latticeConfig.skills?.max ?? 4,
         goal,
         agent,
@@ -64,7 +69,7 @@ export async function selectSkillsForStage(
     );
 
     store(selected);
-    if (stageDef?.skills?.dynamic && selected.length > 0) {
+    if (skillsConfig?.dynamic && selected.length > 0) {
       deps.log.info(`Skills for ${stageId}: ${selected.map((s) => s.name).join(", ")}`);
     }
   } catch (err) {
@@ -84,6 +89,9 @@ export async function executeStageAction(
   const action = buildStageAction(instance, effective);
   if (!action) return;
 
+  const dispatchId = await markStageDispatching(instance, deps.engineConfig, parentSessionId);
+  if (!dispatchId) return;
+
   const stageIndex = (instance.stages.findIndex((s) => s.id === action.stageId) ?? 0) + 1;
   const progress = `[${stageIndex}/${instance.stages.length}]`;
 
@@ -94,25 +102,54 @@ export async function executeStageAction(
     );
   }
 
-  await selectSkillsForStage(parentSessionId, effective, action.stageId, action.agent, instance.goal, deps);
+  try {
+    await selectSkillsForStage(parentSessionId, effective, action.stageId, action.agent, instance.goal, deps);
 
-  if (action.type === "inject") {
-    await deps.sessions.injectPrompt(parentSessionId, action.agent, action.prompt, modelOverride);
-    seedConfiguredTelemetry(instance, modelOverride);
-    await markStageRunning(instance, deps.engineConfig);
-    deps.log.info(`${progress} Stage "${action.stageId}" (agent: ${action.agent})`);
-  } else {
-    await deps.sessions.injectSubtask(
-      parentSessionId,
-      action.agent,
-      action.prompt,
-      `${progress} Lattice: ${action.stageId}`,
-      modelOverride,
-    );
-    seedConfiguredTelemetry(instance, modelOverride);
-    await markStageRunning(instance, deps.engineConfig);
-    deps.log.info(`${progress} Subtask "${action.stageId}" (agent: ${action.agent})`);
+    if (action.type === "inject") {
+      await deps.sessions.injectPrompt(parentSessionId, action.agent, action.prompt, modelOverride);
+      seedConfiguredTelemetry(instance, modelOverride);
+      await markStageRunning(instance, deps.engineConfig, parentSessionId);
+      deps.log.info(`${progress} Stage "${action.stageId}" (agent: ${action.agent})`);
+    } else {
+      const result = await deps.sessions.injectSubtask(
+        parentSessionId,
+        action.agent,
+        action.prompt,
+        `${progress} Lattice: ${action.stageId}`,
+        modelOverride,
+      );
+      seedConfiguredTelemetry(instance, modelOverride);
+      await markStageRunning(instance, deps.engineConfig, result.sessionId);
+      deps.log.info(`${progress} Subtask "${action.stageId}" (agent: ${action.agent})`);
+    }
+  } catch (error) {
+    await failDispatch(instance, deps.engineConfig, error);
+    throw error;
   }
+}
+
+async function failDispatch(instance: PipelineInstance, engineConfig: EngineConfig, error: unknown): Promise<void> {
+  const stage = instance.stages[instance.currentStageIndex];
+  if (stage) {
+    stage.status = "failed";
+    stage.completedAt = new Date().toISOString();
+    stage.summary = `Dispatch failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  instance.status = "failed";
+  instance.updatedAt = new Date().toISOString();
+  await saveInstance(engineConfig.projectDir, instance);
+}
+
+function mergeSkillsConfig(
+  ...configs: Array<Parameters<typeof selectSkills>[1]["skillsConfig"]>
+): Parameters<typeof selectSkills>[1]["skillsConfig"] | undefined {
+  let merged: Parameters<typeof selectSkills>[1]["skillsConfig"] | undefined;
+  for (const config of configs) {
+    if (!config) continue;
+    merged = merged ?? {};
+    Object.assign(merged, config);
+  }
+  return merged;
 }
 
 function seedConfiguredTelemetry(

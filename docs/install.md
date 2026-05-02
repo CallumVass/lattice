@@ -20,13 +20,13 @@ Lattice requires an OpenCode host with the `@opencode-ai/plugin` API at `>=1.4.0
 
 Lattice ships no agents, skills, or pipelines — you author them. Lattice discovers your content from the following paths:
 
-- **Pipelines**: `~/.config/opencode/lattice-pipelines/*.ts` (global) and `.opencode/lattice-pipelines/*.ts` (project, overrides global with the same name)
+- **Pipelines**: `~/.config/opencode/lattice-pipelines/*.{ts,js,mjs}` (global) and `.opencode/lattice-pipelines/*.{ts,js,mjs}` (project, overrides global with the same name)
 - **Agents**: OpenCode-native, `~/.config/opencode/agents/*.md` or `.opencode/agents/*.md`
 - **Skills**: OpenCode-native, `~/.config/opencode/skills/<name>/SKILL.md` or `.opencode/skills/<name>/SKILL.md`
 
 ## Pipeline imports
 
-Pipeline files that use the typed builder (`import { pipeline, stage } from "@callumvass/lattice"`) need two things wired up where the pipeline files live:
+Pipeline files that use the typed builder (`import { pipeline, stage } from "@callumvass/lattice/builder"`) need two things wired up where the pipeline files live:
 
 1. **The package installed** so Node (and your editor) can resolve the import:
 
@@ -59,7 +59,7 @@ Pipeline files that use the typed builder (`import { pipeline, stage } from "@ca
 
    Drop it next to the `lattice-pipelines/` folder (i.e. `~/.config/opencode/tsconfig.json` for global pipelines, or rely on your project's existing tsconfig for `.opencode/lattice-pipelines/`).
 
-Without the install you'll hit `Cannot find module '@callumvass/lattice'` at both editor and runtime. Without the tsconfig you'll hit the same editor error even when the package is present — the TS server can't figure out how to resolve without a project config. Both need to be in place.
+Without the install you'll hit `Cannot find module '@callumvass/lattice'` at both editor and runtime for typed-builder pipelines. Without the tsconfig you'll hit the same editor error even when the package is present — the TS server can't figure out how to resolve without a project config.
 
 Alternatively, use the plain-object form (no import, no install, no tsconfig — see [`custom-pipelines.md`](custom-pipelines.md#plain-object-api-no-install)).
 

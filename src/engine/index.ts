@@ -10,6 +10,7 @@ export {
   type EngineConfig,
   effectivePipeline,
   expandCurrentStageIfNeeded,
+  markStageDispatching,
   markStageRunning,
   startPipeline,
 } from "./engine.js";

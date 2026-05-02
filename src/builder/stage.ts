@@ -9,6 +9,7 @@ import type {
   StageContext,
   StageDefinition,
 } from "../schema/index.js";
+import { stageDefinitionSchema } from "../schema/index.js";
 
 interface BaseStageOptions {
   agent: string;
@@ -43,7 +44,7 @@ export interface SignalStageOptions extends BaseStageOptions {
 export type StageOptions = IdleStageOptions | SignalStageOptions;
 
 export function stage(id: string, options: StageOptions): StageDefinition {
-  return {
+  return stageDefinitionSchema.parse({
     id,
     type: "stage",
     agent: options.agent,
@@ -56,7 +57,7 @@ export function stage(id: string, options: StageOptions): StageDefinition {
     ...(options.skills && { skills: { dynamic: false, pinned: [], max: 4, ...options.skills } }),
     ...(options.prompt && { prompt: options.prompt }),
     ...(options.maxRewinds !== undefined && { maxRewinds: options.maxRewinds }),
-  };
+  });
 }
 
 export function ref(name: string): PipelineRef {

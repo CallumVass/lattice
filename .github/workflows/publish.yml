@@ -38,7 +38,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 22
           cache: npm
 
       - name: Install deps
@@ -49,6 +49,9 @@ jobs:
 
       - name: Verify
         run: npm run check
+
+      - name: Package smoke test
+        run: npm run smoke:package
 
       - name: Publish to npm
         run: npm publish --access public --provenance

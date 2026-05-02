@@ -4,6 +4,10 @@ export interface ModelOverride {
   modelID: string;
 }
 
+export interface SessionDispatchResult {
+  sessionId?: string;
+}
+
 /**
  * Parse a `"provider/model-id"` config string into the structured form opencode
  * expects. Splits on the first `/` so model IDs containing dots or hyphens
@@ -40,7 +44,7 @@ export interface SessionProvider {
     prompt: string,
     description: string,
     model?: ModelOverride,
-  ): Promise<void>;
+  ): Promise<SessionDispatchResult>;
   /**
    * Post a user-visible status message into a session WITHOUT triggering an
    * LLM response. Use for progress surfaces (e.g. "running verification...")

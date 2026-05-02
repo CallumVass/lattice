@@ -1,13 +1,21 @@
 import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 
-export async function cleanSignals(projectDir: string): Promise<void> {
-  const dir = join(projectDir, ".lattice", "signals");
+export async function cleanSignals(projectDir: string, instanceId?: string): Promise<void> {
+  const root = join(projectDir, ".lattice", "signals");
+  if (!instanceId) {
+    await rm(root, { recursive: true, force: true });
+    return;
+  }
+
+  await rm(join(root, instanceId), { recursive: true, force: true });
   try {
-    const files = await readdir(dir);
-    await Promise.all(files.map((f) => rm(join(dir, f), { force: true })));
+    const files = await readdir(root);
+    await Promise.all(
+      files.filter((file) => file.endsWith(".json")).map((file) => rm(join(root, file), { force: true })),
+    );
   } catch {
-    // directory doesn't exist, nothing to clean
+    // Signals directory does not exist.
   }
 }
 

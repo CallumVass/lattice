@@ -3,7 +3,7 @@ import type { DiscoveredSkill } from "./scanner.js";
 import { type ScoringContext, type ScoringProvider, scoreSkills } from "./scorer.js";
 
 interface SkillSelectionContext extends ScoringContext {
-  skillsConfig: SkillsConfig | undefined;
+  skillsConfig: Partial<SkillsConfig> | undefined;
   defaultMax: number;
 }
 

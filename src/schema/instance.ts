@@ -1,7 +1,7 @@
 import { z } from "zod/v4";
 import { stageDefinitionSchema } from "./stage.js";
 
-const stageStatusSchema = z.enum(["pending", "running", "completed", "rejected", "skipped", "failed"]);
+const stageStatusSchema = z.enum(["pending", "dispatching", "running", "completed", "rejected", "skipped", "failed"]);
 
 export type StageStatus = z.infer<typeof stageStatusSchema>;
 
@@ -28,6 +28,8 @@ const stageInstanceSchema = z.object({
   agent: z.string(),
   status: stageStatusSchema,
   sessionId: z.string().optional(),
+  dispatchId: z.string().optional(),
+  dispatchedAt: z.string().datetime().optional(),
   startedAt: z.string().datetime().optional(),
   completedAt: z.string().datetime().optional(),
   summary: z.string().optional(),
@@ -58,13 +60,15 @@ const pipelinePauseSchema = z.object({
 
 export type PipelinePause = z.infer<typeof pipelinePauseSchema>;
 
-const pipelineInstanceSchema = z.object({
+export const pipelineInstanceSchema = z.object({
   id: z.string(),
   pipelineName: z.string(),
   goal: z.string(),
   status: pipelineStatusSchema,
   currentStageIndex: z.number().int().min(0),
   stages: z.array(stageInstanceSchema),
+  /** Session where framework commands were invoked and shared-context stages are injected. */
+  parentSessionId: z.string().optional(),
   /** Runtime-expanded stage definitions. Present after dynamic stage expansion. */
   runtimeStages: z.array(stageDefinitionSchema).optional(),
   createdAt: z.string().datetime(),

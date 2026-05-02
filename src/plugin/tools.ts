@@ -33,13 +33,15 @@ function formatStatus(instance: PipelineInstance | undefined): string {
     const marker =
       s.status === "running"
         ? "→"
-        : s.status === "completed"
-          ? "✓"
-          : s.status === "skipped"
-            ? "-"
-            : s.status === "rejected"
-              ? "✗"
-              : " ";
+        : s.status === "dispatching"
+          ? "…"
+          : s.status === "completed"
+            ? "✓"
+            : s.status === "skipped"
+              ? "-"
+              : s.status === "rejected"
+                ? "✗"
+                : " ";
     lines.push(`${marker} ${s.id} (${s.agent}): ${s.status}${s.summary ? ` - ${s.summary}` : ""}`);
   }
 
@@ -50,6 +52,8 @@ function clearStageForRetry(stage: StageInstance | undefined): void {
   if (!stage) return;
   stage.status = "pending";
   stage.sessionId = undefined;
+  stage.dispatchId = undefined;
+  stage.dispatchedAt = undefined;
   stage.startedAt = undefined;
   stage.completedAt = undefined;
   stage.summary = undefined;
@@ -75,6 +79,25 @@ function missingPauseMetadataMessage(): string {
   return "Pipeline is paused but has no valid pause metadata. Use `/lattice status` or `/lattice abort`.";
 }
 
+function rememberControlSession(
+  state: PluginState,
+  instance: PipelineInstance,
+  context: ToolContext,
+): string | undefined {
+  const sessionId = context.sessionID ?? instance.parentSessionId ?? state.parentSessionId;
+  if (context.sessionID) {
+    state.parentSessionId = context.sessionID;
+    instance.parentSessionId = context.sessionID;
+  } else if (sessionId) {
+    state.parentSessionId = sessionId;
+  }
+  return sessionId;
+}
+
+function missingControlSessionMessage(): string {
+  return "No control session is available for this pipeline. Run the command again from an OpenCode chat session.";
+}
+
 async function runPipeline(
   deps: ToolDeps,
   args: { pipeline?: string; goal?: string },
@@ -96,10 +119,11 @@ async function runPipeline(
   }
 
   try {
+    if (!context.sessionID) return missingControlSessionMessage();
     await cleanSignals(state.engineConfig.projectDir);
     const flat = await getFlattened(pipeline);
     state.parentSessionId = context.sessionID;
-    const result = await startPipeline(flat, goal, state.engineConfig);
+    const result = await startPipeline(flat, goal, state.engineConfig, context.sessionID);
     state.activeInstance = result.instance;
     if (result.instance.status === "running") {
       await deps.scheduleCurrentStage?.();
@@ -116,7 +140,7 @@ async function runPipeline(
   }
 }
 
-async function continuePipeline(deps: ToolDeps, response: string | undefined): Promise<string> {
+async function continuePipeline(deps: ToolDeps, response: string | undefined, context: ToolContext): Promise<string> {
   const { state, scheduleCurrentStage, log } = deps;
   const instance = state.activeInstance;
   if (!instance || instance.status !== "paused") return "No paused pipeline to continue.";
@@ -124,12 +148,13 @@ async function continuePipeline(deps: ToolDeps, response: string | undefined): P
   if (instance.pause?.kind !== "checkpoint") {
     return `Pipeline is paused for ${instance.pause?.kind ?? "unknown reason"}; use \`/lattice retry\` or \`/lattice accept\`.`;
   }
+  if (!rememberControlSession(state, instance, context)) return missingControlSessionMessage();
 
   instance.status = "running";
   instance.pause = undefined;
   instance.updatedAt = new Date().toISOString();
   instance.resumeContext = response?.trim() || undefined;
-  await cleanSignals(state.engineConfig.projectDir);
+  await cleanSignals(state.engineConfig.projectDir, instance.id);
   await saveInstance(state.engineConfig.projectDir, instance);
   const resumingId = instance.stages[instance.currentStageIndex]?.id ?? "?";
   log.info(`Continuing pipeline at stage "${resumingId}"`);
@@ -137,7 +162,7 @@ async function continuePipeline(deps: ToolDeps, response: string | undefined): P
   return `Continuing pipeline at stage "${resumingId}".`;
 }
 
-async function retryPipeline(deps: ToolDeps, response: string | undefined): Promise<string> {
+async function retryPipeline(deps: ToolDeps, response: string | undefined, context: ToolContext): Promise<string> {
   const { state, log, getFlattened, scheduleCurrentStage } = deps;
   const instance = state.activeInstance;
   if (!instance || instance.status !== "paused") return "No paused pipeline to retry.";
@@ -146,13 +171,14 @@ async function retryPipeline(deps: ToolDeps, response: string | undefined): Prom
   if (instance.pause?.kind === "checkpoint") {
     return "This pause is a checkpoint, not a failure. Use `/lattice continue [message]`.";
   }
+  if (!rememberControlSession(state, instance, context)) return missingControlSessionMessage();
 
   if (instance.pause?.kind === "stuck") {
     instance.status = "running";
     instance.pause = undefined;
     instance.resumeContext = response?.trim() || undefined;
     instance.updatedAt = new Date().toISOString();
-    await cleanSignals(state.engineConfig.projectDir);
+    await cleanSignals(state.engineConfig.projectDir, instance.id);
     await saveInstance(state.engineConfig.projectDir, instance);
     await scheduleCurrentStage?.();
     return `Restarting stage "${instance.stages[instance.currentStageIndex]?.id ?? "?"}".`;
@@ -198,7 +224,7 @@ async function retryPipeline(deps: ToolDeps, response: string | undefined): Prom
   instance.updatedAt = new Date().toISOString();
   instance.resumeContext = response?.trim() || undefined;
 
-  await cleanSignals(state.engineConfig.projectDir);
+  await cleanSignals(state.engineConfig.projectDir, instance.id);
   await saveInstance(state.engineConfig.projectDir, instance);
 
   log.info(`Retrying from stage "${instance.stages[retryIndex]?.id}"`);
@@ -206,7 +232,7 @@ async function retryPipeline(deps: ToolDeps, response: string | undefined): Prom
   return `Retrying from stage "${instance.stages[retryIndex]?.id}". The stage will begin automatically.`;
 }
 
-async function acceptPause(deps: ToolDeps, reason: string | undefined): Promise<string> {
+async function acceptPause(deps: ToolDeps, reason: string | undefined, context: ToolContext): Promise<string> {
   const { state, log, scheduleCurrentStage } = deps;
   const instance = state.activeInstance;
   if (!instance || instance.status !== "paused") return "No paused pipeline to accept.";
@@ -215,6 +241,7 @@ async function acceptPause(deps: ToolDeps, reason: string | undefined): Promise<
   if (instance.pause?.kind === "stuck") {
     return "This pause is a stuck-stage recovery. Use `/lattice retry` to restart it or `/lattice abort` to cancel.";
   }
+  if (!rememberControlSession(state, instance, context)) return missingControlSessionMessage();
 
   const acceptedIndex = pausedStageIndex(instance);
   if (acceptedIndex === undefined) return missingPauseMetadataMessage();
@@ -233,7 +260,7 @@ async function acceptPause(deps: ToolDeps, reason: string | undefined): Promise<
   instance.updatedAt = new Date().toISOString();
   instance.resumeContext = reason?.trim() || undefined;
 
-  await cleanSignals(state.engineConfig.projectDir);
+  await cleanSignals(state.engineConfig.projectDir, instance.id);
 
   const advancedTo = instance.stages[advanceIndex]?.id;
   if (!advancedTo) {
@@ -259,7 +286,7 @@ async function abortPipeline(deps: ToolDeps): Promise<string> {
   instance.status = "failed";
   instance.pause = undefined;
   instance.updatedAt = new Date().toISOString();
-  const running = instance.stages.find((s) => s.status === "running");
+  const running = instance.stages.find((s) => s.status === "running" || s.status === "dispatching");
   if (running) {
     running.status = "failed";
     running.completedAt = new Date().toISOString();
@@ -267,7 +294,7 @@ async function abortPipeline(deps: ToolDeps): Promise<string> {
   }
 
   await saveInstance(state.engineConfig.projectDir, instance);
-  await cleanSignals(state.engineConfig.projectDir);
+  await cleanSignals(state.engineConfig.projectDir, instance.id);
   log.info(`Pipeline "${instance.pipelineName}" aborted`);
   state.activeInstance = undefined;
   return `Pipeline "${instance.pipelineName}" aborted.`;
@@ -294,7 +321,7 @@ async function resetPipeline(deps: ToolDeps): Promise<string> {
   instance.pause = pause;
   instance.updatedAt = new Date().toISOString();
 
-  await cleanSignals(state.engineConfig.projectDir);
+  await cleanSignals(state.engineConfig.projectDir, instance.id);
   await saveInstance(state.engineConfig.projectDir, instance);
 
   log.info(`Pipeline "${instance.pipelineName}" reset - stage "${stuck?.id ?? "?"}" returned to pending`);
@@ -317,9 +344,9 @@ export function createLatticeControlTool(deps: ToolDeps): ToolDefinition {
       if (args.action === "status") return formatStatus(deps.state.activeInstance);
       if (args.action === "run") return runPipeline(deps, args, context);
 
-      if (args.action === "continue") return continuePipeline(deps, args.response);
-      if (args.action === "retry") return retryPipeline(deps, args.response);
-      if (args.action === "accept") return acceptPause(deps, args.reason);
+      if (args.action === "continue") return continuePipeline(deps, args.response, context);
+      if (args.action === "retry") return retryPipeline(deps, args.response, context);
+      if (args.action === "accept") return acceptPause(deps, args.reason, context);
       if (args.action === "abort") return abortPipeline(deps);
       if (args.action === "reset") return resetPipeline(deps);
       return `Unsupported lattice action: ${args.action}`;
@@ -343,6 +370,9 @@ export function createLatticeSignalTool(deps: ToolDeps): ToolDefinition {
 
       const currentStage = instance.stages[instance.currentStageIndex];
       if (!currentStage || currentStage.status !== "running") return "No running stage to signal.";
+      if (currentStage.sessionId && context.sessionID && context.sessionID !== currentStage.sessionId) {
+        return `Signal refused: current stage "${currentStage.id}" is running in session "${currentStage.sessionId}", not "${context.sessionID}".`;
+      }
       if (context?.agent && context.agent !== currentStage.agent) {
         return `Signal refused: current stage "${currentStage.id}" uses agent "${currentStage.agent}", not "${context.agent}".`;
       }
@@ -356,7 +386,7 @@ export function createLatticeSignalTool(deps: ToolDeps): ToolDefinition {
         return `Signal refused: status "${args.status}" is not declared for stage "${currentStage.id}". Declared signals: ${stageDef.signals?.join(", ") ?? "(none)"}.`;
       }
 
-      const signalsDir = join(deps.state.engineConfig.projectDir, ".lattice", "signals");
+      const signalsDir = join(deps.state.engineConfig.projectDir, ".lattice", "signals", instance.id);
       await mkdir(signalsDir, { recursive: true });
       await writeFile(
         join(signalsDir, `${currentStage.id}.json`),
