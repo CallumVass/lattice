@@ -16,16 +16,6 @@ Every pipeline you author gets a slash command matching its `name` field. Drop a
 
 The goal can be free text, an issue number, or a URL — it's passed straight through to the first stage.
 
-## Autostart From File
-
-To start a pipeline as soon as OpenCode creates or updates a session, write `.lattice/autostart.json` in the project:
-
-```json
-{ "pipeline": "<name>", "goal": "<goal>" }
-```
-
-When there is no active pipeline, Lattice reads that file, clears stale signals, starts the named pipeline with the given goal, and removes the file after a successful start. Invalid files are ignored with a warning.
-
 ## How A Run Proceeds
 
 1. `/<pipeline-name> <goal>` invokes `lattice_control` with action `run`.
@@ -44,8 +34,10 @@ When there is no active pipeline, Lattice reads that file, clears stale signals,
 
 A pipeline pauses in two cases:
 
-- **Checkpoint**: the current stage's definition has `pauseAfter: true` (or a custom pause config). The previous stage succeeded; the pipeline is waiting for user sign-off. Release with `/lattice continue`.
-- **Failure/blocker**: a stage signaled `fail` or `blocked`. Release with `/lattice retry` (rewinds and retries) or `/lattice accept` (accepts the result and advances).
+- **Checkpoint**: the current stage's definition has `pauseAfter: true` (or a custom pause config). The previous stage succeeded; the pipeline is waiting for user sign-off.
+- **Failure/blocker**: a stage signaled `fail` or `blocked`. Choose retry (rewinds and retries), accept (treats the result as acceptable), or abort.
+
+When possible, Lattice asks through OpenCode's `question` UI. The gate includes an action choice plus optional guidance. Guidance is passed to the next or retried stage as `resumeContext`, or used as the acceptance reason for `/lattice accept`.
 
 ### Checkpoints — `/lattice continue`
 
@@ -65,10 +57,6 @@ For a failed or blocked stage, `/lattice retry` rewinds to a target stage and re
 If the target carries a `maxRewinds` cap, `/lattice retry` refuses once the cap is reached and leaves the pipeline paused — use `/lattice accept` to accept the failure and advance, or `/lattice abort` to cancel. This avoids indefinite loops when a reviewer and a rewind target aren't converging. See [`custom-pipelines.md`](custom-pipelines.md#fail-rewinds) for authoring rewind targets.
 
 If you've decided the failure is acceptable (e.g. intentional shared-file edits), use `/lattice accept [reason]` to mark the stage completed and advance to the next stage. The optional reason is recorded in the stage summary.
-
-## Permissions
-
-When the host supports OpenCode permission prompts, Lattice asks for the native `lattice` permission before continue, accept, abort, and reset actions. For critical actions, prefer an explicit checkpoint plus a follow-up stage that performs the action after approval.
 
 ## Recovering A Stuck Pipeline — `/lattice reset`
 

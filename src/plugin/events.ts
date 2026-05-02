@@ -12,7 +12,7 @@ import {
 } from "../engine/index.js";
 import type { StageTelemetry } from "../schema/index.js";
 import type { createLogger } from "./logger.js";
-import { completionMessage, failureMessage, pauseMessage } from "./notifications.js";
+import { completionMessage, failureMessage, pauseInstruction, pauseMessage } from "./notifications.js";
 import { executeStageAction, type StageRunnerDeps } from "./stage-runner.js";
 
 interface AssistantMessageInfo {
@@ -161,6 +161,7 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
           "build",
           pauseMessage(instance.pipelineName, result.pause),
           buildModel,
+          pauseInstruction(instance.pipelineName, result.pause),
         );
       }
 

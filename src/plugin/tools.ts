@@ -17,35 +17,6 @@ interface ToolDeps {
 type Logger = { info: (msg: string) => void; warn: (msg: string) => void; error: (msg: string) => void };
 
 const CONTROL_ACTIONS = ["status", "run", "continue", "retry", "accept", "abort", "reset"] as const;
-type ControlAction = (typeof CONTROL_ACTIONS)[number];
-
-async function runAskResult(result: unknown): Promise<void> {
-  if (!result) return;
-  if (typeof result === "object" && "then" in result && typeof result.then === "function") {
-    await (result as Promise<void>);
-    return;
-  }
-
-  const { Effect } = await import("effect");
-  await Effect.runPromise(result as never);
-}
-
-async function requestApproval(context: ToolContext | undefined, action: ControlAction, instance?: PipelineInstance) {
-  if (!context?.ask) return;
-  const pattern = instance ? `${action}:${instance.pipelineName}:${instance.currentStageIndex}` : `${action}:*`;
-  await runAskResult(
-    context.ask({
-      permission: "lattice",
-      patterns: [pattern],
-      always: [pattern],
-      metadata: {
-        action,
-        pipeline: instance?.pipelineName,
-        stage: instance?.stages[instance.currentStageIndex]?.id,
-      },
-    }),
-  );
-}
 
 function formatStatus(instance: PipelineInstance | undefined): string {
   const lines: string[] = [];
@@ -102,22 +73,6 @@ function pausedStageIndex(instance: PipelineInstance): number | undefined {
 
 function missingPauseMetadataMessage(): string {
   return "Pipeline is paused but has no valid pause metadata. Use `/lattice status` or `/lattice abort`.";
-}
-
-function shouldRequestApproval(action: ControlAction, instance: PipelineInstance | undefined): boolean {
-  if (action === "continue") {
-    return (
-      instance?.status === "paused" && instance.pause?.kind === "checkpoint" && instance.pause.requiresApproval === true
-    );
-  }
-  if (action === "accept") {
-    return (
-      instance?.status === "paused" && (instance.pause?.kind === "rejection" || instance.pause?.kind === "blocked")
-    );
-  }
-  if (action === "abort") return instance !== undefined;
-  if (action === "reset") return instance?.status === "running";
-  return false;
 }
 
 async function runPipeline(
@@ -361,11 +316,6 @@ export function createLatticeControlTool(deps: ToolDeps): ToolDefinition {
     async execute(args, context) {
       if (args.action === "status") return formatStatus(deps.state.activeInstance);
       if (args.action === "run") return runPipeline(deps, args, context);
-
-      const instance = deps.state.activeInstance;
-      if (shouldRequestApproval(args.action, instance)) {
-        await requestApproval(context, args.action, instance);
-      }
 
       if (args.action === "continue") return continuePipeline(deps, args.response);
       if (args.action === "retry") return retryPipeline(deps, args.response);

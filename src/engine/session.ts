@@ -32,7 +32,7 @@ export function resolveModelOverride(
 /** Abstraction over opencode session management for testability. */
 export interface SessionProvider {
   /** Inject a prompt into a session with a specific agent (agent switching). */
-  injectPrompt(sessionId: string, agent: string, prompt: string, model?: ModelOverride): Promise<void>;
+  injectPrompt(sessionId: string, agent: string, prompt: string, model?: ModelOverride, system?: string): Promise<void>;
   /** Send a subtask to a session, spawning a visible sub-agent. */
   injectSubtask(
     sessionId: string,

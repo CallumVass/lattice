@@ -14,7 +14,7 @@ Register the npm package directly in `opencode.json`. OpenCode will download it:
 }
 ```
 
-Lattice requires an OpenCode host with the `@opencode-ai/plugin` API at `>=1.4.0`, which provides the native permission prompt API used for sensitive `/lattice` actions.
+Lattice requires an OpenCode host with the `@opencode-ai/plugin` API at `>=1.4.0`.
 
 If you are developing Lattice itself, build from source:
 
@@ -63,8 +63,6 @@ Lattice exposes one framework command, independent of your pipelines:
 - `/lattice accept [reason]` — accept a failed or blocked stage and advance past it
 - `/lattice abort` — stop the active pipeline
 - `/lattice reset` — recover a pipeline stuck in `running` state; marks the stuck stage pending and pauses the pipeline so retry can restart it
-
-Lattice also consumes `.lattice/autostart.json` on session creation or update. Write `{ "pipeline": "<name>", "goal": "<goal>" }` there to start a pipeline automatically in the next available session; the file is removed after a successful start.
 
 ## First Use
 

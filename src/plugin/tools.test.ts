@@ -210,7 +210,7 @@ describe("createLatticeControlTool", () => {
     expect(scheduleCurrentStage).toHaveBeenCalledTimes(1);
   });
 
-  it("asks before continuing a checkpoint that requires approval", async () => {
+  it("continues a checkpoint with legacy approval metadata without native permission ask", async () => {
     const definition = pipeline("review", {
       stages: [stage("propose-comments", { agent: "pr-review-composer", completion: "signal", signals: ["complete"] })],
     });
@@ -242,7 +242,7 @@ describe("createLatticeControlTool", () => {
     );
 
     expect(result).toBe('Continuing pipeline at stage "post-comments".');
-    expect(ask).toHaveBeenCalledWith(expect.objectContaining({ permission: "lattice" }));
+    expect(ask).not.toHaveBeenCalled();
     expect(state.activeInstance?.status).toBe("running");
     expect(scheduleCurrentStage).toHaveBeenCalledTimes(1);
   });
@@ -447,7 +447,7 @@ describe("createLatticeControlTool", () => {
     );
 
     expect(result).toBe('Accepted stage "review". Advancing to "follow-up".');
-    expect(ask).toHaveBeenCalledWith(expect.objectContaining({ permission: "lattice" }));
+    expect(ask).not.toHaveBeenCalled();
     expect(state.activeInstance?.status).toBe("running");
     expect(state.activeInstance?.currentStageIndex).toBe(1);
     expect(state.activeInstance?.pause).toBeUndefined();
@@ -524,7 +524,7 @@ describe("createLatticeControlTool", () => {
     const result = await createLatticeControlTool(deps(state)).execute({ action: "abort" }, toolContext({ ask }));
 
     expect(result).toBe('Pipeline "implement" aborted.');
-    expect(ask).toHaveBeenCalledWith(expect.objectContaining({ permission: "lattice" }));
+    expect(ask).not.toHaveBeenCalled();
     expect(state.activeInstance).toBeUndefined();
 
     const persisted = await readFile(join(projectDir, ".lattice", "state", "run-1.json"), "utf-8");
