@@ -166,6 +166,9 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
 
       if (currentStage.status !== "running") return;
 
+      const parentSessionIdBeforeAdvance = deps.state.parentSessionId ?? instance.parentSessionId;
+      const completedInParentSession =
+        !currentStage.sessionId || currentStage.sessionId === parentSessionIdBeforeAdvance;
       const completion = await checkStageCompletion(instance, flat, deps.state.engineConfig);
       if (!completion.complete) return;
 
@@ -183,7 +186,9 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
       }
 
       if (result.instance.status === "running") {
-        if (deps.scheduleCurrentStage) {
+        if (!completedInParentSession) {
+          deps.log.info("Waiting for parent session idle before dispatching the next stage");
+        } else if (deps.scheduleCurrentStage) {
           await deps.scheduleCurrentStage();
         } else {
           const parentSessionId = deps.state.parentSessionId ?? result.instance.parentSessionId;

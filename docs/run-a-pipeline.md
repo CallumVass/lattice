@@ -22,7 +22,7 @@ The goal can be free text, an issue number, or a URL — it's passed straight th
 2. Lattice creates an instance under `.lattice/state/<id>.json`.
 3. After the control command turn becomes idle, the first stage runs. If `context: "isolated"`, it starts as a cold subtask; if `context: "shared"`, it injects into the current session.
 4. The stage signals its outcome via the `lattice_signal` tool (`complete`, `pass`, `fail`, `blocked`).
-5. Lattice advances to the next stage, or pauses if `pauseAfter: true` or the signal is `fail`/`blocked`.
+5. Lattice advances to the next stage, or pauses if `pauseAfter: true` or the signal is `fail`/`blocked`. After an isolated subtask completes, the next stage is dispatched from the parent session's next idle event rather than from the child session.
 6. When the last stage signals `complete`, the pipeline completes and the active instance is cleared.
 
 ## Stage Context
