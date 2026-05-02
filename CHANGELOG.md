@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.4.0](https://github.com/CallumVass/lattice/compare/lattice-v3.3.1...lattice-v3.4.0) (2026-05-02)
+
+
+### Features
+
+* **runtime:** harden pipeline orchestration ([fd548c7](https://github.com/CallumVass/lattice/commit/fd548c7af64946aba378ee4d871ac9a7fc46e06b))
+
 ## [3.3.1](https://github.com/CallumVass/lattice/compare/lattice-v3.3.0...lattice-v3.3.1) (2026-05-02)
 
 
