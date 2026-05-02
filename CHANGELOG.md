@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.4.1](https://github.com/CallumVass/lattice/compare/lattice-v3.4.0...lattice-v3.4.1) (2026-05-02)
+
+
+### Bug Fixes
+
+* **ci:** restore trusted publishing runtime ([b17c75c](https://github.com/CallumVass/lattice/commit/b17c75c4e6f29e1eafe9908a9acd14672a6749ef))
+
 ## [3.4.0](https://github.com/CallumVass/lattice/compare/lattice-v3.3.1...lattice-v3.4.0) (2026-05-02)
 
 
