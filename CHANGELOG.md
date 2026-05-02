@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.1](https://github.com/CallumVass/lattice/compare/lattice-v3.3.0...lattice-v3.3.1) (2026-05-02)
+
+
+### Bug Fixes
+
+* **plugin:** scope skills to active stage ([19c0f42](https://github.com/CallumVass/lattice/commit/19c0f421b5f4572d133d118835d959c7264290b6))
+
 ## [3.3.0](https://github.com/CallumVass/lattice/compare/lattice-v3.2.0...lattice-v3.3.0) (2026-05-02)
 
 
