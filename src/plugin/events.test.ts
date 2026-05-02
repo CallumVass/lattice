@@ -44,6 +44,7 @@ function registryOf(...defs: PipelineDefinition[]): PipelineRegistry {
 
 interface HandlerOverrides {
   sessions?: SessionProvider;
+  scheduleCurrentStage?: () => Promise<void>;
 }
 
 function buildHandler(state: PluginState, registry: PipelineRegistry, overrides: HandlerOverrides = {}) {
@@ -69,11 +70,12 @@ function buildHandler(state: PluginState, registry: PipelineRegistry, overrides:
     scoringProvider: NO_SKILLS_PROVIDER,
     skillStore: new SkillStore(),
     log: SILENT_LOG,
+    ...(overrides.scheduleCurrentStage && { scheduleCurrentStage: overrides.scheduleCurrentStage }),
   });
 }
 
-async function fireIdle(handler: ReturnType<typeof createEventHandler>) {
-  await handler({ event: { type: "session.idle", properties: { sessionID: "session-1" } } } as never);
+async function fireIdle(handler: ReturnType<typeof createEventHandler>, sessionID = "session-1") {
+  await handler({ event: { type: "session.idle", properties: { sessionID } } } as never);
 }
 
 interface AssistantInfoOverrides {
@@ -185,6 +187,34 @@ describe("session.idle pipeline progression", () => {
     await clearSignal("second");
 
     expect(state.activeInstance).toBeUndefined();
+  });
+
+  it("waits for parent idle before scheduling after an isolated stage completes", async () => {
+    const registry = registryOf(twoStage);
+    const state = makeState({}, registry);
+    const scheduleCurrentStage = vi.fn(async () => {});
+    const handler = buildHandler(state, registry, { scheduleCurrentStage });
+
+    const flat = flattenPipeline(twoStage, registry);
+    const { instance } = await startPipeline(flat, "ship it", state.engineConfig, "session-1");
+    state.activeInstance = instance;
+    const firstStage = instance.stages[0];
+    expect(firstStage).toBeDefined();
+    if (!firstStage) throw new Error("Expected first stage");
+    firstStage.status = "running";
+    firstStage.sessionId = "child-1";
+
+    await writeSignal("first", "complete", "done");
+    await fireIdle(handler, "child-1");
+
+    expect(state.activeInstance?.currentStageIndex).toBe(1);
+    expect(state.activeInstance?.stages[0]?.status).toBe("completed");
+    expect(state.activeInstance?.stages[1]?.status).toBe("pending");
+    expect(scheduleCurrentStage).not.toHaveBeenCalled();
+
+    await fireIdle(handler, "session-1");
+
+    expect(scheduleCurrentStage).toHaveBeenCalledTimes(1);
   });
 
   it("injects a pause prompt when a stage fails", async () => {
