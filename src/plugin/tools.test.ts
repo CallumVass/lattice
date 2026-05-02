@@ -99,7 +99,7 @@ describe("createLatticeControlTool", () => {
     expect(result).toContain('Pipeline "review" started.');
     expect(state.parentSessionId).toBe("session-1");
     expect(state.activeInstance?.pipelineName).toBe("review");
-    expect(scheduleCurrentStage).toHaveBeenCalledTimes(1);
+    expect(scheduleCurrentStage).not.toHaveBeenCalled();
 
     const persisted = await readFile(
       join(projectDir, ".lattice", "state", `${state.activeInstance?.id}.json`),
@@ -202,12 +202,14 @@ describe("createLatticeControlTool", () => {
       toolContext({ ask }),
     );
 
-    expect(result).toBe('Continuing pipeline at stage "post-comments".');
+    expect(result).toBe(
+      'Continuing pipeline at stage "post-comments". The stage will begin when this control turn is idle.',
+    );
     expect(ask).not.toHaveBeenCalled();
     expect(state.activeInstance?.status).toBe("running");
     expect(state.activeInstance?.pause).toBeUndefined();
     expect(state.activeInstance?.resumeContext).toBe("ship it");
-    expect(scheduleCurrentStage).toHaveBeenCalledTimes(1);
+    expect(scheduleCurrentStage).not.toHaveBeenCalled();
   });
 
   it("continues a checkpoint with legacy approval metadata without native permission ask", async () => {
@@ -241,10 +243,12 @@ describe("createLatticeControlTool", () => {
       toolContext({ ask }),
     );
 
-    expect(result).toBe('Continuing pipeline at stage "post-comments".');
+    expect(result).toBe(
+      'Continuing pipeline at stage "post-comments". The stage will begin when this control turn is idle.',
+    );
     expect(ask).not.toHaveBeenCalled();
     expect(state.activeInstance?.status).toBe("running");
-    expect(scheduleCurrentStage).toHaveBeenCalledTimes(1);
+    expect(scheduleCurrentStage).not.toHaveBeenCalled();
   });
 
   it("rewinds to an explicitly configured retry target", async () => {
@@ -290,7 +294,7 @@ describe("createLatticeControlTool", () => {
     expect(state.activeInstance?.resumeContext).toBe("try again");
     expect(state.activeInstance?.stages[2]).toMatchObject({ id: "author", status: "pending" });
     expect(state.activeInstance?.stages[3]).toMatchObject({ id: "review", status: "pending" });
-    expect(scheduleCurrentStage).toHaveBeenCalledTimes(1);
+    expect(scheduleCurrentStage).not.toHaveBeenCalled();
   });
 
   it("does not rewind to an upstream implementor without an explicit retry target", async () => {
@@ -327,7 +331,7 @@ describe("createLatticeControlTool", () => {
     expect(state.activeInstance?.currentStageIndex).toBe(2);
     expect(state.activeInstance?.stages[1]).toMatchObject({ id: "implement", status: "completed" });
     expect(state.activeInstance?.stages[2]).toMatchObject({ id: "review", status: "pending" });
-    expect(scheduleCurrentStage).toHaveBeenCalledTimes(1);
+    expect(scheduleCurrentStage).not.toHaveBeenCalled();
   });
 
   it("refuses to retry a checkpoint pause", async () => {
@@ -446,14 +450,14 @@ describe("createLatticeControlTool", () => {
       toolContext({ ask }),
     );
 
-    expect(result).toBe('Accepted stage "review". Advancing to "follow-up".');
+    expect(result).toBe('Accepted stage "review". Advancing to "follow-up" when this control turn is idle.');
     expect(ask).not.toHaveBeenCalled();
     expect(state.activeInstance?.status).toBe("running");
     expect(state.activeInstance?.currentStageIndex).toBe(1);
     expect(state.activeInstance?.pause).toBeUndefined();
     expect(state.activeInstance?.resumeContext).toBe("intentional");
     expect(state.activeInstance?.stages[0]).toMatchObject({ status: "completed", verdict: "pass" });
-    expect(scheduleCurrentStage).toHaveBeenCalledTimes(1);
+    expect(scheduleCurrentStage).not.toHaveBeenCalled();
   });
 
   it("does not infer accept target from rejected stages without pause metadata", async () => {

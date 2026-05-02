@@ -125,14 +125,10 @@ async function runPipeline(
     state.parentSessionId = context.sessionID;
     const result = await startPipeline(flat, goal, state.engineConfig, context.sessionID);
     state.activeInstance = result.instance;
-    if (result.instance.status === "running") {
-      await deps.scheduleCurrentStage?.();
-    }
-
     log.info(`Started pipeline "${pipeline}" - goal: ${goal}`);
 
     const stageList = flat.stages.map((s) => s.id).join(" -> ");
-    return `Pipeline "${pipeline}" started. Stages: ${stageList}. The first stage will begin automatically.`;
+    return `Pipeline "${pipeline}" started. Stages: ${stageList}. The first stage will begin when this control turn is idle.`;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log.error(`Failed to start pipeline: ${msg}`);
@@ -141,7 +137,7 @@ async function runPipeline(
 }
 
 async function continuePipeline(deps: ToolDeps, response: string | undefined, context: ToolContext): Promise<string> {
-  const { state, scheduleCurrentStage, log } = deps;
+  const { state, log } = deps;
   const instance = state.activeInstance;
   if (!instance || instance.status !== "paused") return "No paused pipeline to continue.";
   if (!instance.pause) return missingPauseMetadataMessage();
@@ -158,12 +154,11 @@ async function continuePipeline(deps: ToolDeps, response: string | undefined, co
   await saveInstance(state.engineConfig.projectDir, instance);
   const resumingId = instance.stages[instance.currentStageIndex]?.id ?? "?";
   log.info(`Continuing pipeline at stage "${resumingId}"`);
-  await scheduleCurrentStage?.();
-  return `Continuing pipeline at stage "${resumingId}".`;
+  return `Continuing pipeline at stage "${resumingId}". The stage will begin when this control turn is idle.`;
 }
 
 async function retryPipeline(deps: ToolDeps, response: string | undefined, context: ToolContext): Promise<string> {
-  const { state, log, getFlattened, scheduleCurrentStage } = deps;
+  const { state, log, getFlattened } = deps;
   const instance = state.activeInstance;
   if (!instance || instance.status !== "paused") return "No paused pipeline to retry.";
   if (!instance.pause) return missingPauseMetadataMessage();
@@ -180,8 +175,7 @@ async function retryPipeline(deps: ToolDeps, response: string | undefined, conte
     instance.updatedAt = new Date().toISOString();
     await cleanSignals(state.engineConfig.projectDir, instance.id);
     await saveInstance(state.engineConfig.projectDir, instance);
-    await scheduleCurrentStage?.();
-    return `Restarting stage "${instance.stages[instance.currentStageIndex]?.id ?? "?"}".`;
+    return `Restarting stage "${instance.stages[instance.currentStageIndex]?.id ?? "?"}". The stage will begin when this control turn is idle.`;
   }
 
   const failedIndex = pausedStageIndex(instance);
@@ -228,12 +222,11 @@ async function retryPipeline(deps: ToolDeps, response: string | undefined, conte
   await saveInstance(state.engineConfig.projectDir, instance);
 
   log.info(`Retrying from stage "${instance.stages[retryIndex]?.id}"`);
-  await scheduleCurrentStage?.();
-  return `Retrying from stage "${instance.stages[retryIndex]?.id}". The stage will begin automatically.`;
+  return `Retrying from stage "${instance.stages[retryIndex]?.id}". The stage will begin when this control turn is idle.`;
 }
 
 async function acceptPause(deps: ToolDeps, reason: string | undefined, context: ToolContext): Promise<string> {
-  const { state, log, scheduleCurrentStage } = deps;
+  const { state, log } = deps;
   const instance = state.activeInstance;
   if (!instance || instance.status !== "paused") return "No paused pipeline to accept.";
   if (!instance.pause) return missingPauseMetadataMessage();
@@ -274,8 +267,7 @@ async function acceptPause(deps: ToolDeps, reason: string | undefined, context: 
   instance.status = "running";
   await saveInstance(state.engineConfig.projectDir, instance);
   log.info(`Accepted "${accepted.id}"; advancing to "${advancedTo}"`);
-  await scheduleCurrentStage?.();
-  return `Accepted stage "${accepted.id}". Advancing to "${advancedTo}".`;
+  return `Accepted stage "${accepted.id}". Advancing to "${advancedTo}" when this control turn is idle.`;
 }
 
 async function abortPipeline(deps: ToolDeps): Promise<string> {
