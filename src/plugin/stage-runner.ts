@@ -9,7 +9,7 @@ import type { LatticeConfig, PipelineInstance } from "../schema/index.js";
 import { type DiscoveredSkill, type ScoringProvider, selectSkills } from "../skills/index.js";
 import type { createLogger } from "./logger.js";
 import type { PluginState } from "./state.js";
-import type { SkillStore } from "./system-transform.js";
+import { activeStageSkillKey, type SkillStore } from "./system-transform.js";
 
 type Logger = ReturnType<typeof createLogger>;
 
@@ -33,7 +33,19 @@ export async function selectSkillsForStage(
   goal: string,
   deps: StageRunnerDeps,
 ): Promise<void> {
-  if (deps.latticeConfig.skills?.disabled) return;
+  const activeInstance = deps.state.activeInstance;
+  const activeStage = activeInstance?.stages[activeInstance.currentStageIndex];
+  const stageKey = activeStage?.id === stageId ? activeStageSkillKey(activeInstance) : undefined;
+
+  const store = (skills: DiscoveredSkill[]) => {
+    deps.skillStore.set(sessionId, skills);
+    if (stageKey) deps.skillStore.setStage(stageKey, skills);
+  };
+
+  if (deps.latticeConfig.skills?.disabled) {
+    store([]);
+    return;
+  }
 
   const stageDef = pipeline.stages.find((s) => s.id === stageId);
 
@@ -51,12 +63,12 @@ export async function selectSkillsForStage(
       deps.scoringProvider,
     );
 
-    if (selected.length === 0) return;
-    deps.skillStore.set(sessionId, selected);
-    if (stageDef?.skills?.dynamic) {
+    store(selected);
+    if (stageDef?.skills?.dynamic && selected.length > 0) {
       deps.log.info(`Skills for ${stageId}: ${selected.map((s) => s.name).join(", ")}`);
     }
   } catch (err) {
+    store([]);
     deps.log.warn(`Skill selection failed for ${stageId}: ${err}`);
   }
 }
@@ -82,6 +94,8 @@ export async function executeStageAction(
     );
   }
 
+  await selectSkillsForStage(parentSessionId, effective, action.stageId, action.agent, instance.goal, deps);
+
   if (action.type === "inject") {
     await deps.sessions.injectPrompt(parentSessionId, action.agent, action.prompt, modelOverride);
     seedConfiguredTelemetry(instance, modelOverride);
@@ -99,8 +113,6 @@ export async function executeStageAction(
     await markStageRunning(instance, deps.engineConfig);
     deps.log.info(`${progress} Subtask "${action.stageId}" (agent: ${action.agent})`);
   }
-
-  await selectSkillsForStage(parentSessionId, effective, action.stageId, action.agent, instance.goal, deps);
 }
 
 function seedConfiguredTelemetry(

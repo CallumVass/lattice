@@ -1,4 +1,4 @@
-import type { LatticeConfig } from "../schema/index.js";
+import type { LatticeConfig, PipelineInstance } from "../schema/index.js";
 import type { DiscoveredSkill } from "../skills/index.js";
 
 /** Tracks which agent is active in each session. */
@@ -17,14 +17,42 @@ export class AgentTracker {
 /** Tracks which skills are selected for each session. */
 export class SkillStore {
   private sessionSkills = new Map<string, DiscoveredSkill[]>();
+  private stageSkills = new Map<string, DiscoveredSkill[]>();
 
   set(sessionID: string, skills: DiscoveredSkill[]) {
-    this.sessionSkills.set(sessionID, skills);
+    if (skills.length === 0) this.sessionSkills.delete(sessionID);
+    else this.sessionSkills.set(sessionID, skills);
   }
 
   get(sessionID: string): DiscoveredSkill[] {
     return this.sessionSkills.get(sessionID) ?? [];
   }
+
+  setStage(stageKey: string, skills: DiscoveredSkill[]) {
+    this.stageSkills.set(stageKey, skills);
+  }
+
+  applyStageToSession(stageKey: string | undefined, sessionID: string) {
+    if (!stageKey || !this.stageSkills.has(stageKey)) return;
+    this.set(sessionID, this.stageSkills.get(stageKey) ?? []);
+  }
+}
+
+export function activeStageSkillKey(instance: PipelineInstance | undefined): string | undefined {
+  const stage = instance?.stages[instance.currentStageIndex];
+  if (!instance || !stage) return undefined;
+  return `${instance.id}:${stage.id}`;
+}
+
+export function bindActiveStageSkillsToSession(
+  skillStore: SkillStore,
+  instance: PipelineInstance | undefined,
+  sessionID: string | undefined,
+  agent: string | undefined,
+) {
+  const stage = instance?.stages[instance.currentStageIndex];
+  if (!sessionID || !agent || !instance || instance.status !== "running" || !stage || stage.agent !== agent) return;
+  skillStore.applyStageToSession(activeStageSkillKey(instance), sessionID);
 }
 
 /**
