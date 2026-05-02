@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.3.0](https://github.com/CallumVass/lattice/compare/lattice-v3.2.0...lattice-v3.3.0) (2026-05-02)
+
+
+### Features
+
+* **plugin:** remove autostart and native permission gates ([a1bef49](https://github.com/CallumVass/lattice/commit/a1bef4932665473fb76f897cee8c5a35c8c390c2))
+
 ## [3.2.0](https://github.com/CallumVass/lattice/compare/lattice-v3.1.0...lattice-v3.2.0) (2026-05-01)
 
 
