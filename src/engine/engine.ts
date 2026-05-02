@@ -321,7 +321,7 @@ export async function advancePipeline(
 
   instance.currentStageIndex = nextIndex;
 
-  // Approval gate: stage definition asked to pause after completing.
+  // Checkpoint gate: stage definition asked to pause after completing.
   if (currentStageDef?.pauseAfter) {
     const nextStageId = instance.stages[nextIndex]?.id ?? "next stage";
     instance.status = "paused";
@@ -335,16 +335,15 @@ export async function advancePipeline(
       ? renderPausePrompt(customPromptTemplate, currentStage.summary)
       : undefined;
 
-    const header = `Stage "${currentStage.id}" complete — awaiting user approval before running "${nextStageId}".`;
+    const header = `Stage "${currentStage.id}" complete. Waiting for user approval before running "${nextStageId}".`;
     const summary = currentStage.summary?.trim();
-    const reason = summary ? `${header}\n\n### Output from "${currentStage.id}"\n\n${summary}` : header;
+    const reason = summary ? `${header}\n\nOutput from "${currentStage.id}":\n${summary}` : header;
     const pause: PipelinePause = {
       kind: "checkpoint",
       stageId: currentStage.id,
       nextStageId,
       reason,
       ...(customPrompt && { prompt: customPrompt }),
-      requiresApproval: true,
     };
     instance.pause = pause;
 

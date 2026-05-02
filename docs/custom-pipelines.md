@@ -60,7 +60,7 @@ Tradeoff: no autocomplete, no compile-time check that `signals` matches the comp
 - `signals`: **required for `signal` stages**. Declares the verdicts this stage may emit. Any of `"complete" | "pass" | "fail" | "blocked"`. Tailors the engine-injected signalling instructions the agent sees, and `lattice_signal` refuses undeclared statuses.
 - `context`: `"isolated"` starts a cold subtask; `"shared"` reuses the current conversation context. Defaults to `"isolated"`.
 - `completedContext`: `"full" | "summaries" | "none"` — controls how much prior-stage completion context is injected into this stage's prompt. Defaults to `"full"`. Use `"none"` for fresh-context slice stages that read explicit handoff files instead of accumulated summaries.
-- `pauseAfter`: `boolean | { prompt?: string }` — pause the pipeline after this stage completes. `true` renders a generic checkpoint message; `{ prompt }` renders the given body verbatim (with `{{summary}}` / `{{reason}}` replaced by the stage's completion summary). The pause is released with `/lattice continue`.
+- `pauseAfter`: `boolean | { prompt?: string }` — pause the pipeline after this stage completes. `true` renders a generic checkpoint message; `{ prompt }` renders the given body with `{{summary}}` / `{{reason}}` replaced by the stage's completion summary. The pause is released through the question gate or with `/lattice continue`.
 - `expand`: dynamic stage expansion config — replaces this placeholder stage with stages rendered from a project-local JSON manifest when the placeholder becomes current. See [Dynamic stage expansion](#dynamic-stage-expansion).
 - `skills`: optional pinned or dynamic skill selection (see [`skills.md`](skills.md))
 - `prompt`: extra instructions appended to the stage prompt. Use this to tell the agent about pipeline-specific wiring: what output format to produce, where to write files, etc.
@@ -115,13 +115,13 @@ stage("plan", {
 });
 ```
 
-`{{summary}}` and `{{reason}}` (aliases) expand to the stage's `lattice_signal` `reason`. If you need no substitution, omit the templates. Lattice posts the pause with concise next steps and asks the build agent to use OpenCode's native `question` tool when available.
+`{{summary}}` and `{{reason}}` (aliases) expand to the stage's `lattice_signal` `reason`. If you need no substitution, omit the templates. Lattice posts a compact decision prompt and asks the build agent to use OpenCode's native `question` tool when available. The question includes an action choice and optional free-text guidance.
 
-## Approval And Permissions
+## Approval Checkpoints
 
-`pauseAfter` creates an explicit checkpoint in the persisted instance. Resume with `/lattice continue [response]`, which records the optional response as `resumeContext` and includes it in the next stage prompt.
+`pauseAfter` creates an explicit checkpoint in the persisted instance. Resume through the question gate or with `/lattice continue [response]`, which records optional guidance as `resumeContext` and includes it in the next stage prompt.
 
-For critical actions, model the approval as a checkpoint plus an explicit follow-up stage. Lattice also requests OpenCode's native `lattice` permission for continue, accept, abort, and reset actions when the host supports permission prompts.
+For critical actions, model the approval as a checkpoint plus an explicit follow-up stage that performs the action after the user approves the question gate.
 
 ## Fail Rewinds
 

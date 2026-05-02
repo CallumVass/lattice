@@ -15,12 +15,19 @@ function errorMessage(error: unknown): string {
 
 export function createOpencodeSessionProvider(client: Client, directory: string): SessionProvider {
   return {
-    async injectPrompt(sessionId: string, agent: string, prompt: string, model?: ModelOverride): Promise<void> {
+    async injectPrompt(
+      sessionId: string,
+      agent: string,
+      prompt: string,
+      model?: ModelOverride,
+      system?: string,
+    ): Promise<void> {
       const { error } = await client.session.promptAsync({
         path: { id: sessionId },
         query: { directory },
         body: {
           agent,
+          ...(system && { system }),
           parts: [{ type: "text", text: prompt }],
           ...(model && { model }),
         },

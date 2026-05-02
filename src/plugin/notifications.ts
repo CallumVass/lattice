@@ -2,92 +2,153 @@
 
 import type { PipelineInstance, PipelinePause } from "../schema/index.js";
 
+const NO_EXTRA_GUIDANCE = "No extra guidance";
+const MAX_CONTEXT_CHARS = 900;
+
+interface PauseAction {
+  label: string;
+  description: string;
+  controlAction: "status" | "continue" | "retry" | "accept" | "abort";
+  guidanceTarget?: "response" | "reason";
+}
+
 function buildUserNotification(options: { title: string; summary: string; nextSteps: string[] }): string {
   const nextStepsBlock = options.nextSteps.length
-    ? ["", "### Assistant action", "", ...options.nextSteps.map((s) => `- ${s}`)].join("\n")
+    ? ["", "### Next steps", "", ...options.nextSteps.map((s) => `- ${s}`)].join("\n")
     : "";
 
   return [`## ${options.title}`, "", options.summary, nextStepsBlock].filter(Boolean).join("\n");
 }
 
-function askUserStep(options: string, guidancePrompt: string, controlMapping: string): string {
-  return [
-    "Your next action MUST be to call the `question` tool. Do not call `lattice_control` yet.",
-    `Ask two questions in a single \`question\` tool call. Question 1 chooses the action with options ${options}; do not include any "with guidance" option.`,
-    `Question 2 is "${guidancePrompt}" with a "No extra guidance" option and custom/free-text answers enabled.`,
-    `After the \`question\` tool returns the user's answer, then call \`lattice_control\` (${controlMapping}).`,
-  ].join(" ");
-}
-
-export function pauseMessage(pipelineName: string, pause: PipelinePause): string {
-  const fallbackHint =
-    "Only if `question` is unavailable or denied, tell the user to run one of the `/lattice ...` commands below.";
-
+function pauseActions(pause: PipelinePause): PauseAction[] {
   if (pause.kind === "checkpoint") {
-    return buildUserNotification({
-      title: `Pipeline "${pipelineName}" paused - checkpoint`,
-      summary: pause.prompt ?? pause.reason ?? `Stage "${pause.stageId}" completed and awaits approval.`,
-      nextSteps: [
-        askUserStep(
-          "`Continue`, `Abort`, and `Status`",
-          "Optional guidance for the next stage",
-          "`continue` with any guidance as `response`, `abort`, or `status`",
-        ),
-        `Continue with \`/lattice continue [message]\`; stage "${pause.nextStageId ?? "next"}" will start.`,
-        "Inspect with `/lattice status` or cancel with `/lattice abort`.",
-        fallbackHint,
-      ],
-    });
-  }
-
-  if (pause.kind === "blocked") {
-    return buildUserNotification({
-      title: `Pipeline "${pipelineName}" paused - blocked`,
-      summary: pause.reason ?? `Stage "${pause.stageId}" is blocked.`,
-      nextSteps: [
-        askUserStep(
-          "`Retry`, `Accept and continue`, `Abort`, and `Status`",
-          "Optional guidance or acceptance reason",
-          "`retry` with guidance as `response`, `accept` with a `reason`, `abort`, or `status`",
-        ),
-        "Retry with `/lattice retry [message]`.",
-        "Accept and continue with `/lattice accept [reason]`, or cancel with `/lattice abort`.",
-        fallbackHint,
-      ],
-    });
+    return [
+      {
+        label: "Continue",
+        description: `Start ${pause.nextStageId ? `stage ${pause.nextStageId}` : "the next stage"}.`,
+        controlAction: "continue",
+        guidanceTarget: "response",
+      },
+      { label: "Abort", description: "Stop this pipeline.", controlAction: "abort" },
+      { label: "Status", description: "Show current pipeline state.", controlAction: "status" },
+    ];
   }
 
   if (pause.kind === "stuck") {
-    return buildUserNotification({
-      title: `Pipeline "${pipelineName}" paused - reset needed`,
-      summary: pause.reason ?? `Stage "${pause.stageId}" appears stuck.`,
-      nextSteps: [
-        askUserStep(
-          "`Restart stage`, `Abort`, and `Status`",
-          "Optional guidance for the restarted stage",
-          "`retry`, `abort`, or `status`",
-        ),
-        "Restart with `/lattice retry`.",
-        "Inspect with `/lattice status` or cancel with `/lattice abort`.",
-        fallbackHint,
-      ],
-    });
+    return [
+      {
+        label: "Restart stage",
+        description: "Restart the stuck stage.",
+        controlAction: "retry",
+        guidanceTarget: "response",
+      },
+      { label: "Abort", description: "Stop this pipeline.", controlAction: "abort" },
+      { label: "Status", description: "Show current pipeline state.", controlAction: "status" },
+    ];
   }
 
-  return buildUserNotification({
-    title: `Pipeline "${pipelineName}" paused - stage failed`,
-    summary: pause.reason ?? `Stage "${pause.stageId}" failed.`,
-    nextSteps: [
-      askUserStep(
-        "`Retry`, `Accept and continue`, `Abort`, and `Status`",
-        "Optional guidance or acceptance reason",
-        "`retry` with guidance as `response`, `accept` with a `reason`, `abort`, or `status`",
-      ),
-      "Retry with `/lattice retry [message]`.",
-      "Accept and continue with `/lattice accept [reason]`, or cancel with `/lattice abort`.",
-      fallbackHint,
-    ],
-  });
+  return [
+    {
+      label: "Retry",
+      description: "Rewind and retry the failed or blocked work.",
+      controlAction: "retry",
+      guidanceTarget: "response",
+    },
+    {
+      label: "Accept and continue",
+      description: "Treat this result as acceptable and advance.",
+      controlAction: "accept",
+      guidanceTarget: "reason",
+    },
+    { label: "Abort", description: "Stop this pipeline.", controlAction: "abort" },
+    { label: "Status", description: "Show current pipeline state.", controlAction: "status" },
+  ];
+}
+
+function pauseState(pause: PipelinePause): string {
+  if (pause.kind === "checkpoint") return "checkpoint";
+  if (pause.kind === "blocked") return "blocked";
+  if (pause.kind === "stuck") return "reset needed";
+  return "stage failed";
+}
+
+function normalizeContext(value: string | undefined): string {
+  const compact = (value ?? "")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/^>\s?/gm, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (compact.length <= MAX_CONTEXT_CHARS) return compact;
+  return `${compact.slice(0, MAX_CONTEXT_CHARS).trimEnd()}\n[truncated]`;
+}
+
+function actionOptions(actions: PauseAction[]): string {
+  return actions.map((action) => `${action.label} (${action.description})`).join("; ");
+}
+
+function actionMappings(actions: PauseAction[]): string {
+  return actions
+    .map((action) => {
+      const guidance = action.guidanceTarget ? `; pass extra guidance as ${action.guidanceTarget} when provided` : "";
+      return `${action.label} -> lattice_control action "${action.controlAction}"${guidance}.`;
+    })
+    .join("\n");
+}
+
+function fallbackCommands(actions: PauseAction[]): string {
+  const commands = actions.map((action) => `/lattice ${action.controlAction}`).join(", ");
+  return `If the question tool is unavailable, briefly tell the user to run one of: ${commands}.`;
+}
+
+export function pauseMessage(pipelineName: string, pause: PipelinePause): string {
+  const state = pauseState(pause);
+  const context = normalizeContext(pause.prompt ?? pause.reason ?? `Stage "${pause.stageId}" paused.`);
+  const nextStage = pause.nextStageId ? `Next stage: ${pause.nextStageId}` : undefined;
+
+  return [
+    "Lattice needs your decision.",
+    `Pipeline: ${pipelineName}`,
+    `State: ${state}`,
+    `Stage: ${pause.stageId}`,
+    nextStage,
+    context ? `Context: ${context}` : undefined,
+    "OpenCode will ask what Lattice should do next and let you add optional guidance.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+export function pauseInstruction(pipelineName: string, pause: PipelinePause): string {
+  const state = pauseState(pause);
+  const actions = pauseActions(pause);
+  const context = normalizeContext(pause.prompt ?? pause.reason ?? `Stage "${pause.stageId}" paused.`);
+  const nextStage = pause.nextStageId ? `Next stage: ${pause.nextStageId}` : undefined;
+
+  return [
+    "Lattice is paused and needs a user decision.",
+    `Pipeline: ${pipelineName}`,
+    `State: ${state}`,
+    `Stage: ${pause.stageId}`,
+    nextStage,
+    context ? `Context: ${context}` : undefined,
+    "",
+    "Call the question tool now with exactly two questions in one call. Do not call lattice_control before the user answers.",
+    "Question 1 header: Action",
+    `Question 1 text: include the decision context above, then ask "What should Lattice do next?"`,
+    `Question 1 options: ${actionOptions(actions)}.`,
+    "Question 2 header: Guidance",
+    `Question 2 text: Any extra guidance?`,
+    `Question 2 options: ${NO_EXTRA_GUIDANCE}. Enable custom/free-text answers.`,
+    `When the answer to Question 2 is "${NO_EXTRA_GUIDANCE}" or empty, omit response/reason. Otherwise use the user's guidance for actions that accept it.`,
+    "After the question returns, call lattice_control using this mapping:",
+    actionMappings(actions),
+    fallbackCommands(actions),
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export function completionMessage(instance: PipelineInstance): string {

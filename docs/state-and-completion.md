@@ -6,7 +6,6 @@ Lattice persists runtime data in `.lattice/` inside the target project.
 
 ```text
 .lattice/
-├── autostart.json   # optional one-shot request to start a pipeline in the next session
 ├── config.jsonc     # your config
 ├── signals/         # stage outcome signals written by lattice_signal
 └── state/           # persisted pipeline instances (one file per run)
@@ -16,9 +15,7 @@ Lattice persists runtime data in `.lattice/` inside the target project.
 
 Pipelines can write any other files they need (e.g. plans, drafts) under `.lattice/` or wherever their stage prompts direct.
 
-`.lattice/autostart.json` is a transient one-shot request with `{ "pipeline": "<name>", "goal": "<goal>" }`. Lattice removes it after starting the pipeline successfully.
-
-When a pipeline uses dynamic stage expansion, the persisted instance also records `runtimeStages`. This is the expanded stage list for that run only, so retries and approvals continue against the generated stages instead of re-reading the original placeholder definition.
+When a pipeline uses dynamic stage expansion, the persisted instance also records `runtimeStages`. This is the expanded stage list for that run only, so retries and checkpoints continue against the generated stages instead of re-reading the original placeholder definition.
 
 ## Completion Methods
 
@@ -67,7 +64,7 @@ When a stage signals `fail` or `blocked`, the pipeline becomes `paused` and reco
 
 The target stage's `rewindsUsed` counter increments on each accepted rewind. If the target declares `maxRewinds: N`, `/lattice retry` refuses once the counter reaches the cap and leaves the pipeline paused with a message pointing at `/lattice accept` or `/lattice abort`. Unbounded by default — set a cap on stages where a reviewer/target non-convergence is a realistic failure mode. See [`custom-pipelines.md`](custom-pipelines.md#fail-rewinds).
 
-If the pipeline is at a `pauseAfter` checkpoint, use `/lattice continue [response]` to unpause. The optional response is stored as `resumeContext`, included in the next stage prompt, then cleared when that stage starts.
+If the pipeline is at a `pauseAfter` checkpoint, approve it through the question gate or use `/lattice continue [response]` to unpause. The optional response is stored as `resumeContext`, included in the next stage prompt, then cleared when that stage starts.
 
 `/lattice accept [reason]` is the inverse of retry: it marks the failed/blocked stage completed (with verdict `pass` and the optional reason appended to its summary) and advances to the next stage. Use this when you've reviewed the failure and decided it is acceptable as-is.
 

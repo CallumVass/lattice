@@ -212,8 +212,9 @@ describe("session.idle pipeline progression", () => {
     expect(injectPrompt).toHaveBeenCalledWith(
       "session-1",
       "build",
-      expect.stringContaining('Pipeline "review" paused'),
+      expect.stringContaining("Pipeline: review"),
       undefined,
+      expect.stringContaining("Call the question tool now"),
     );
   });
 

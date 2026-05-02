@@ -14,7 +14,7 @@ OpenCode supports npm package extensions, so it will download the package automa
 
 ## Minimum Versions
 
-Lattice requires an OpenCode host with the `@opencode-ai/plugin` API at `>=1.4.0`. That plugin API level provides `ToolContext.ask`, which Lattice uses for native permission prompts on sensitive `/lattice` actions.
+Lattice requires an OpenCode host with the `@opencode-ai/plugin` API at `>=1.4.0`.
 
 ## Bring Your Own Content
 
