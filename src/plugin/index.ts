@@ -10,7 +10,7 @@ import { createEventHandler } from "./events.js";
 import { createLogger } from "./logger.js";
 import { executeStageAction, selectSkillsForStage } from "./stage-runner.js";
 import type { PluginState } from "./state.js";
-import { AgentTracker, buildSystemTransform, SkillStore } from "./system-transform.js";
+import { AgentTracker, bindActiveStageSkillsToSession, buildSystemTransform, SkillStore } from "./system-transform.js";
 import { createLatticeControlTool, createLatticeSignalTool } from "./tools.js";
 
 const PIPELINE_DIR_NAME = "lattice-pipelines";
@@ -122,6 +122,12 @@ const server: Plugin = async ({ client, directory }) => {
   const toolDeps = { state, getFlattened, selectSkillsForStage: selectSkillsForActiveStage, scheduleCurrentStage, log };
   const eventHandler = createEventHandler({ ...stageRunnerDeps, state, getFlattened });
 
+  const trackSessionAgent = (sessionID: string | undefined, agent: string | undefined) => {
+    if (!sessionID || !agent) return;
+    agentTracker.track(sessionID, agent);
+    bindActiveStageSkillsToSession(skillStore, state.activeInstance, sessionID, agent);
+  };
+
   return {
     tool: {
       lattice_control: createLatticeControlTool(toolDeps),
@@ -132,8 +138,12 @@ const server: Plugin = async ({ client, directory }) => {
       registerLatticeCommands(config, state.registry.keys());
     },
 
+    "chat.message": async (input) => {
+      trackSessionAgent(input.sessionID, input.agent);
+    },
+
     "chat.params": async (input) => {
-      agentTracker.track(input.sessionID, input.agent);
+      trackSessionAgent(input.sessionID, input.agent);
     },
 
     "experimental.chat.system.transform": buildSystemTransform(latticeConfig, agentTracker, skillStore),

@@ -3,12 +3,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pipeline, stage } from "../builder/index.js";
-import { type EngineConfig, flattenPipeline, type PipelineRegistry, type SessionProvider } from "../engine/index.js";
+import {
+  type EngineConfig,
+  flattenPipeline,
+  type PipelineRegistry,
+  type SessionProvider,
+  startPipeline,
+} from "../engine/index.js";
 import type { LatticeConfig } from "../schema/index.js";
 import type { DiscoveredSkill, ScoringProvider } from "../skills/index.js";
-import { selectSkillsForStage } from "./stage-runner.js";
+import { executeStageAction, selectSkillsForStage } from "./stage-runner.js";
 import type { PluginState } from "./state.js";
-import { SkillStore } from "./system-transform.js";
+import { activeStageSkillKey, SkillStore } from "./system-transform.js";
 
 let projectDir: string;
 
@@ -151,5 +157,90 @@ describe("selectSkillsForStage", () => {
 
     expect(skillStore.get("session-1")).toEqual([]);
     expect(SILENT_LOG.warn).toHaveBeenCalled();
+  });
+
+  it("stores selected skills under the active stage key", async () => {
+    const { registry, def } = makeRegistry();
+    const state = makeState({}, registry);
+    const flat = flattenPipeline(def, registry);
+    const { instance } = await startPipeline(flat, "build feature", state.engineConfig);
+    state.activeInstance = instance;
+    const skillStore = new SkillStore();
+
+    await selectSkillsForStage("session-1", flat, "plan", "planner", "build feature", {
+      sessions: NO_OP_SESSIONS,
+      engineConfig: state.engineConfig,
+      latticeConfig: {},
+      discoveredSkills: [{ name: "tdd", description: "TDD", filePath: "/x/tdd.md", content: "Test first." }],
+      scoringProvider: scoringProvider(["tdd"]),
+      skillStore,
+      state,
+      log: SILENT_LOG,
+    });
+
+    skillStore.applyStageToSession(activeStageSkillKey(instance), "child-session");
+
+    expect(skillStore.get("child-session").map((s) => s.name)).toEqual(["tdd"]);
+  });
+
+  it("clears stale session skills when a stage selects none", async () => {
+    const def = pipeline("plain", {
+      stages: [stage("plan", { agent: "planner", completion: "signal", signals: ["complete"] })],
+    });
+    const registry: PipelineRegistry = new Map([[def.name, def]]);
+    const state = makeState({}, registry);
+    const flat = flattenPipeline(def, registry);
+    const skillStore = new SkillStore();
+    skillStore.set("session-1", [{ name: "old", description: "Old", filePath: "/x/old.md", content: "Old." }]);
+
+    await selectSkillsForStage("session-1", flat, "plan", "planner", "build feature", {
+      sessions: NO_OP_SESSIONS,
+      engineConfig: state.engineConfig,
+      latticeConfig: {},
+      discoveredSkills: [{ name: "old", description: "Old", filePath: "/x/old.md", content: "Old." }],
+      scoringProvider: scoringProvider([]),
+      skillStore,
+      state,
+      log: SILENT_LOG,
+    });
+
+    expect(skillStore.get("session-1")).toEqual([]);
+  });
+
+  it("selects skills before dispatching a shared stage prompt", async () => {
+    const def = pipeline("shared", {
+      stages: [
+        stage("plan", {
+          agent: "planner",
+          completion: "signal",
+          signals: ["complete"],
+          context: "shared",
+          skills: { pinned: ["tdd"] },
+        }),
+      ],
+    });
+    const registry: PipelineRegistry = new Map([[def.name, def]]);
+    const state = makeState({}, registry);
+    const flat = flattenPipeline(def, registry);
+    const { instance } = await startPipeline(flat, "build feature", state.engineConfig);
+    state.activeInstance = instance;
+    const skillStore = new SkillStore();
+    const injectPrompt = vi.fn<SessionProvider["injectPrompt"]>(async () => {
+      expect(skillStore.get("session-1").map((s) => s.name)).toEqual(["tdd"]);
+    });
+
+    await executeStageAction(instance, "session-1", flat, {
+      sessions: { ...NO_OP_SESSIONS, injectPrompt },
+      engineConfig: state.engineConfig,
+      latticeConfig: {},
+      discoveredSkills: [{ name: "tdd", description: "TDD", filePath: "/x/tdd.md", content: "Test first." }],
+      scoringProvider: scoringProvider(["tdd"]),
+      skillStore,
+      state,
+      log: SILENT_LOG,
+    });
+
+    expect(injectPrompt).toHaveBeenCalledOnce();
+    expect(instance.stages[0]?.status).toBe("running");
   });
 });
