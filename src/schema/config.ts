@@ -22,7 +22,7 @@ const pipelineOverrideSchema = z.object({
 
 export type PipelineOverride = z.infer<typeof pipelineOverrideSchema>;
 
-const latticeConfigSchema = z.object({
+export const latticeConfigSchema = z.object({
   agents: z.record(z.string(), agentOverrideSchema).optional(),
   pipelines: z.record(z.string(), pipelineOverrideSchema).optional(),
   skills: z

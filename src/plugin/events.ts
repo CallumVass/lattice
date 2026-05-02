@@ -16,6 +16,7 @@ import { completionMessage, failureMessage, pauseInstruction, pauseMessage } fro
 import { executeStageAction, type StageRunnerDeps } from "./stage-runner.js";
 
 interface AssistantMessageInfo {
+  sessionID?: string;
   role?: string;
   agent?: string;
   modelID?: string;
@@ -65,6 +66,28 @@ interface EventHandlerDeps extends StageRunnerDeps {
   getFlattened: (name: string) => Promise<FlattenedPipeline>;
   sessions: SessionProvider;
   log: Logger;
+  scheduleCurrentStage?: () => Promise<void>;
+}
+
+function eventSessionId(event: unknown): string | undefined {
+  const properties = (event as { properties?: { sessionID?: string; info?: { sessionID?: string } } }).properties;
+  return properties?.sessionID ?? properties?.info?.sessionID;
+}
+
+function currentStageSessionId(
+  instance: { parentSessionId?: string; currentStageIndex: number; stages: Array<{ sessionId?: string }> },
+  fallbackSessionId?: string,
+): string | undefined {
+  return instance.stages[instance.currentStageIndex]?.sessionId ?? instance.parentSessionId ?? fallbackSessionId;
+}
+
+function isCurrentStageSession(
+  instance: { parentSessionId?: string; currentStageIndex: number; stages: Array<{ sessionId?: string }> },
+  fallbackSessionId: string | undefined,
+  incomingSessionId: string | undefined,
+): boolean {
+  const expected = currentStageSessionId(instance, fallbackSessionId);
+  return !expected || incomingSessionId === expected;
 }
 
 /**
@@ -77,7 +100,7 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
 
   return async ({ event }) => {
     if (event.type === "message.updated") {
-      const msg = event as unknown as { properties?: { info?: AssistantMessageInfo } };
+      const msg = event as unknown as { properties?: { sessionID?: string; info?: AssistantMessageInfo } };
       const info = msg.properties?.info;
       // Only authoritative assistant turns carry finalised tokens/cost; partial frames have zeros.
       if (!info || info.role !== "assistant" || !info.time?.completed) return;
@@ -86,6 +109,8 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
       if (!instance || instance.status !== "running") return;
       const stage = instance.stages[instance.currentStageIndex];
       if (!stage || stage.status !== "running") return;
+      if (!isCurrentStageSession(instance, deps.state.parentSessionId, msg.properties?.sessionID ?? info.sessionID))
+        return;
       if (info.agent && info.agent !== stage.agent) return;
 
       if (stage.telemetry?.configuredModel && info.modelID && stage.telemetry.configuredModel !== info.modelID) {
@@ -109,9 +134,11 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
       return;
     }
     if (event.type !== "session.idle") return;
+    const sessionId = eventSessionId(event);
 
     const instance = deps.state.activeInstance;
     if (!instance || instance.status !== "running") return;
+    if (!isCurrentStageSession(instance, deps.state.parentSessionId, sessionId)) return;
     if (processing) return;
     processing = true;
 
@@ -123,12 +150,19 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
       let flat = effectivePipeline(instance, staticFlat);
 
       if (currentStage.status === "pending") {
-        if (deps.state.parentSessionId) {
-          await executeStageAction(instance, deps.state.parentSessionId, staticFlat, deps);
-          flat = effectivePipeline(instance, staticFlat);
+        if (deps.scheduleCurrentStage) {
+          await deps.scheduleCurrentStage();
+        } else {
+          const parentSessionId = deps.state.parentSessionId ?? instance.parentSessionId;
+          if (parentSessionId) {
+            await executeStageAction(instance, parentSessionId, staticFlat, deps);
+            flat = effectivePipeline(instance, staticFlat);
+          }
         }
         return;
       }
+
+      if (currentStage.status === "dispatching") return;
 
       if (currentStage.status !== "running") return;
 
@@ -148,16 +182,22 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
         }
       }
 
-      if (result.instance.status === "running" && deps.state.parentSessionId) {
-        await executeStageAction(result.instance, deps.state.parentSessionId, flat, deps);
+      if (result.instance.status === "running") {
+        if (deps.scheduleCurrentStage) {
+          await deps.scheduleCurrentStage();
+        } else {
+          const parentSessionId = deps.state.parentSessionId ?? result.instance.parentSessionId;
+          if (parentSessionId) await executeStageAction(result.instance, parentSessionId, flat, deps);
+        }
       }
 
       const buildModel = resolveModelOverride(deps.latticeConfig, "build");
+      const parentSessionId = deps.state.parentSessionId ?? result.instance.parentSessionId;
 
-      if (result.pause && deps.state.parentSessionId) {
+      if (result.pause && parentSessionId) {
         deps.log.info(`Pipeline paused: ${result.pause.kind} at ${result.pause.stageId}`);
         await deps.sessions.injectPrompt(
-          deps.state.parentSessionId,
+          parentSessionId,
           "build",
           pauseMessage(instance.pipelineName, result.pause),
           buildModel,
@@ -166,12 +206,12 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
       }
 
       if (result.instance.status === "completed") {
-        await cleanSignals(deps.state.engineConfig.projectDir);
+        await cleanSignals(deps.state.engineConfig.projectDir, result.instance.id);
         await cleanBlockedFile(deps.state.engineConfig.projectDir);
         deps.log.info(`Pipeline "${instance.pipelineName}" completed`);
 
-        if (deps.state.parentSessionId) {
-          await deps.sessions.notify(deps.state.parentSessionId, completionMessage(result.instance)).catch(() => {});
+        if (parentSessionId) {
+          await deps.sessions.notify(parentSessionId, completionMessage(result.instance)).catch(() => {});
         }
 
         deps.state.activeInstance = undefined;
@@ -188,9 +228,10 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
       await saveInstance(deps.state.engineConfig.projectDir, instance);
       deps.state.activeInstance = undefined;
 
-      if (deps.state.parentSessionId) {
+      const parentSessionId = deps.state.parentSessionId ?? instance.parentSessionId;
+      if (parentSessionId) {
         await deps.sessions.injectPrompt(
-          deps.state.parentSessionId,
+          parentSessionId,
           "build",
           failureMessage(instance.pipelineName, currentStage?.id, err),
           resolveModelOverride(deps.latticeConfig, "build"),

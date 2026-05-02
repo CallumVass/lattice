@@ -36,16 +36,24 @@ describe("loadPipelines", () => {
     expect(registry.get("review")?.name).toBe("review");
   });
 
-  it("throws on missing default export", async () => {
+  it("skips files with missing default export and reports diagnostics", async () => {
     await writeFile(join(dir, "bad.ts"), "export const foo = 1;");
 
-    await expect(loadPipelines([dir])).rejects.toThrow("must have a default export");
+    const diagnostics: string[] = [];
+    const registry = await loadPipelines([dir], { onDiagnostic: (diagnostic) => diagnostics.push(diagnostic.message) });
+
+    expect(registry.size).toBe(0);
+    expect(diagnostics.join("\n")).toContain("must have a default export");
   });
 
-  it("throws on invalid pipeline definition", async () => {
+  it("skips invalid pipeline definitions and reports diagnostics", async () => {
     await writeFile(join(dir, "bad.ts"), 'export default { name: "INVALID NAME!", stages: [] };');
 
-    await expect(loadPipelines([dir])).rejects.toThrow("Invalid pipeline definition");
+    const diagnostics: string[] = [];
+    const registry = await loadPipelines([dir], { onDiagnostic: (diagnostic) => diagnostics.push(diagnostic.message) });
+
+    expect(registry.size).toBe(0);
+    expect(diagnostics.join("\n")).toContain("Invalid pipeline definition");
   });
 
   it("later directories override earlier ones with the same pipeline name", async () => {

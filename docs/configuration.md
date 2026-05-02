@@ -81,7 +81,17 @@ Model selection precedence is:
 
 Set `"skills": { "disabled": true }` at the top level to short-circuit skill injection for every stage. Pipeline files keep their inline `skills.pinned` lists; they are simply not consulted while the flag is on. Useful for A/B ablations (skills on vs skills off) without duplicating pipelines.
 
+## Skill Selection Precedence
+
+When skill injection is enabled, Lattice merges skill settings in this order, with later entries winning on overlapping fields:
+
+1. `agents.<agent>.skills`
+2. Inline `stage(..., { skills })` or plain-object stage `skills`
+3. `pipelines.<pipeline>.stages.<stage>.skills`
+
+Use agent-level skills for broad defaults and stage-level config for one-off overrides.
+
 ## Notes
 
-- The config format is JSONC, so comments are allowed.
+- The config format is JSONC, so comments are allowed and invalid config is reported instead of silently ignored.
 - Config merging is shallow by top-level section, with project values winning.

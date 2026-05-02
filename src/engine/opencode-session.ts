@@ -1,5 +1,5 @@
 import type { createOpencodeClient } from "@opencode-ai/sdk";
-import type { ModelOverride, SessionProvider } from "./session.js";
+import type { ModelOverride, SessionDispatchResult, SessionProvider } from "./session.js";
 
 type Client = ReturnType<typeof createOpencodeClient>;
 
@@ -43,7 +43,7 @@ export function createOpencodeSessionProvider(client: Client, directory: string)
       prompt: string,
       description: string,
       model?: ModelOverride,
-    ): Promise<void> {
+    ): Promise<SessionDispatchResult> {
       // Subtasks carry their model inside the SubtaskPartInput — `body.model`
       // is ignored for subtasks. SubtaskPartInput.model is the right field,
       // verified against @opencode-ai/sdk types.gen.d.ts.
@@ -57,6 +57,7 @@ export function createOpencodeSessionProvider(client: Client, directory: string)
       if (error) {
         throw new Error(`Failed to inject subtask: ${errorMessage(error)}`);
       }
+      return {};
     },
 
     async notify(sessionId: string, message: string): Promise<void> {

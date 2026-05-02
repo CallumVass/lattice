@@ -3,6 +3,7 @@ import type { CompletionMethod, SignalVerdict } from "../schema/index.js";
 
 export interface CompletionContext {
   signalsDir: string;
+  legacySignalsDir?: string;
   stageId: string;
 }
 
@@ -35,7 +36,12 @@ async function checkSignal(ctx: CompletionContext): Promise<CompletionResult> {
   try {
     raw = await readFile(path, "utf-8");
   } catch {
-    return INCOMPLETE;
+    if (!ctx.legacySignalsDir) return INCOMPLETE;
+    try {
+      raw = await readFile(`${ctx.legacySignalsDir}/${ctx.stageId}.json`, "utf-8");
+    } catch {
+      return INCOMPLETE;
+    }
   }
 
   const signal = JSON.parse(raw) as Signal;

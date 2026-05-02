@@ -45,10 +45,14 @@ const server: Plugin = async ({ client, directory }) => {
     join(homedir(), ".config", "opencode", PIPELINE_DIR_NAME),
     join(directory, ".opencode", PIPELINE_DIR_NAME),
   ];
-  const registry = await loadPipelines(pipelineDirs);
+  const log = createLogger(client);
+  const pipelineDiagnostics: string[] = [];
+  const registry = await loadPipelines(pipelineDirs, {
+    onDiagnostic: (diagnostic) => pipelineDiagnostics.push(`${diagnostic.file}: ${diagnostic.message}`),
+  });
   const sessions = createOpencodeSessionProvider(client, directory);
   const scoringProvider = createOpencodeScoringProvider(client, directory);
-  const log = createLogger(client);
+  for (const diagnostic of pipelineDiagnostics) log.warn(`Pipeline load skipped: ${diagnostic}`);
 
   const agentTracker = new AgentTracker();
   const skillStore = new SkillStore();
@@ -65,6 +69,7 @@ const server: Plugin = async ({ client, directory }) => {
     parentSessionId: undefined,
     engineConfig: { projectDir: directory, latticeConfig },
   };
+  state.parentSessionId = state.activeInstance?.parentSessionId;
 
   async function getFlattened(name: string) {
     let flat = state.flattenedCache.get(name);
@@ -75,7 +80,9 @@ const server: Plugin = async ({ client, directory }) => {
       // Registry miss — re-scan pipeline dirs. Covers: pipelines added
       // mid-session, plugin-state resets, and transient registry corruption
       // (the case that stranded PR #480 mid-run with "Pipeline not found").
-      const refreshed = await loadPipelines(pipelineDirs);
+      const refreshed = await loadPipelines(pipelineDirs, {
+        onDiagnostic: (diagnostic) => log.warn(`Pipeline load skipped: ${diagnostic.file}: ${diagnostic.message}`),
+      });
       state.registry = refreshed;
       state.flattenedCache.clear();
       def = refreshed.get(name);
@@ -110,17 +117,29 @@ const server: Plugin = async ({ client, directory }) => {
     return selectSkillsForStage(sessionId, flat, stageId, agent, goal, stageRunnerDeps);
   };
 
+  let scheduleQueue = Promise.resolve();
   const scheduleCurrentStage = async () => {
-    const instance = state.activeInstance;
-    if (!instance || instance.status !== "running" || !state.parentSessionId) return;
-    const currentStage = instance.stages[instance.currentStageIndex];
-    if (!currentStage || currentStage.status !== "pending") return;
-    const flat = await getFlattened(instance.pipelineName);
-    await executeStageAction(instance, state.parentSessionId, flat, stageRunnerDeps);
+    const run = scheduleQueue
+      .catch(() => {})
+      .then(async () => {
+        const instance = state.activeInstance;
+        const parentSessionId = state.parentSessionId ?? instance?.parentSessionId;
+        if (!instance || instance.status !== "running" || !parentSessionId) return;
+        const currentStage = instance.stages[instance.currentStageIndex];
+        if (!currentStage || currentStage.status !== "pending") return;
+        const flat = await getFlattened(instance.pipelineName);
+        await executeStageAction(instance, parentSessionId, flat, stageRunnerDeps);
+        state.parentSessionId = instance.parentSessionId ?? parentSessionId;
+      });
+    scheduleQueue = run.then(
+      () => {},
+      () => {},
+    );
+    await run;
   };
 
   const toolDeps = { state, getFlattened, selectSkillsForStage: selectSkillsForActiveStage, scheduleCurrentStage, log };
-  const eventHandler = createEventHandler({ ...stageRunnerDeps, state, getFlattened });
+  const eventHandler = createEventHandler({ ...stageRunnerDeps, state, getFlattened, scheduleCurrentStage });
 
   const trackSessionAgent = (sessionID: string | undefined, agent: string | undefined) => {
     if (!sessionID || !agent) return;

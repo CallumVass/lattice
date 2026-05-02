@@ -607,7 +607,7 @@ describe("createLatticeSignalTool", () => {
 
     expect(result).toBe("Signal recorded: fail - Found 2 issues");
 
-    const signal = await readFile(join(projectDir, ".lattice", "signals", "code-review.json"), "utf-8");
+    const signal = await readFile(join(projectDir, ".lattice", "signals", "run-1", "code-review.json"), "utf-8");
     expect(JSON.parse(signal)).toEqual({ status: "fail", reason: "Found 2 issues" });
   });
 
