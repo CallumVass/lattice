@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.4.2](https://github.com/CallumVass/lattice/compare/lattice-v3.4.1...lattice-v3.4.2) (2026-05-02)
+
+
+### Bug Fixes
+
+* **plugin:** defer stage dispatch and track subtask telemetry ([67e10a1](https://github.com/CallumVass/lattice/commit/67e10a12a746b8c4c333810c4fcc351fd7fde495))
+
 ## [3.4.1](https://github.com/CallumVass/lattice/compare/lattice-v3.4.0...lattice-v3.4.1) (2026-05-02)
 
 
