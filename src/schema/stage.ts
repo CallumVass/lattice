@@ -35,6 +35,13 @@ export const skillsConfigSchema = z.object({
 
 export type SkillsConfig = z.infer<typeof skillsConfigSchema>;
 
+const parallelGroupSchema = z.object({
+  id: z.string().min(1),
+  maxConcurrency: z.number().int().positive().optional(),
+});
+
+export type ParallelGroup = z.infer<typeof parallelGroupSchema>;
+
 const stageExpansionSchema = z.object({
   /** Local project-relative JSON file that contains the expansion manifest. */
   from: z.string().min(1),
@@ -90,6 +97,8 @@ export const stageDefinitionSchema = z
      * = unlimited (current behaviour).
      */
     maxRewinds: z.number().int().positive().optional(),
+    /** Runtime metadata added by `parallel(...)` pipeline entries after flattening. */
+    parallelGroup: parallelGroupSchema.optional(),
   })
   .refine((s) => s.completion !== "signal" || (s.signals !== undefined && s.signals.length > 0), {
     message: "`signals` must be a non-empty array when `completion` is 'signal'",
@@ -109,6 +118,28 @@ export const pipelineRefSchema = z.object({
 
 export type PipelineRef = z.infer<typeof pipelineRefSchema>;
 
-export const stageEntrySchema = z.discriminatedUnion("type", [stageDefinitionSchema, pipelineRefSchema]);
+export const parallelEntrySchema = z
+  .object({
+    type: z.literal("parallel"),
+    id: z.string().min(1),
+    maxConcurrency: z.number().int().positive().optional(),
+    stages: z.array(stageDefinitionSchema).min(1),
+  })
+  .refine((entry) => entry.stages.every((stage) => stage.context === "isolated"), {
+    message: "Parallel stages must use isolated context",
+    path: ["stages"],
+  })
+  .refine((entry) => entry.stages.every((stage) => stage.pauseAfter === false), {
+    message: "Parallel stages cannot use pauseAfter; put checkpoints before or after the parallel group",
+    path: ["stages"],
+  });
+
+export type ParallelEntry = z.infer<typeof parallelEntrySchema>;
+
+export const stageEntrySchema = z.discriminatedUnion("type", [
+  stageDefinitionSchema,
+  pipelineRefSchema,
+  parallelEntrySchema,
+]);
 
 export type StageEntry = z.infer<typeof stageEntrySchema>;

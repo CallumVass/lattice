@@ -4,14 +4,18 @@
 
 export { cleanBlockedFile, cleanSignals } from "./cleanup.js";
 export {
-  advancePipeline,
+  advancePipelineAt,
   buildStageAction,
-  checkStageCompletion,
+  buildStageActions,
+  checkStageCompletionAt,
   type EngineConfig,
   effectivePipeline,
   expandCurrentStageIfNeeded,
+  expandRunnableStagesIfNeeded,
   markStageDispatching,
+  markStageDispatchingAt,
   markStageRunning,
+  markStageRunningAt,
   startPipeline,
 } from "./engine.js";
 export { type FlattenedPipeline, flattenPipeline } from "./flattener.js";

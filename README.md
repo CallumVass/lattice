@@ -2,7 +2,7 @@
 
 Lattice is an [OpenCode](https://opencode.ai) plugin for running repeatable multi-agent pipelines.
 
-It is a framework — not a product with built-in pipelines. You supply the agents, skills, and pipeline definitions; Lattice handles stage orchestration, dynamic stage expansion, session reuse vs cold starts, skill injection, and persisted pipeline state in `.lattice/`.
+It is a framework — not a product with built-in pipelines. You supply the agents, skills, and pipeline definitions; Lattice handles stage orchestration, parallel sub-agent groups, dynamic stage expansion, session reuse vs cold starts, skill injection, and persisted pipeline state in `.lattice/`.
 
 ## Install
 
@@ -43,7 +43,7 @@ Lattice discovers content from OpenCode's conventional paths. Project paths over
 | Agents | `.opencode/agents/*.md` | `~/.config/opencode/agents/*.md` |
 | Skills | `.opencode/skills/<name>/SKILL.md` | `~/.config/opencode/skills/<name>/SKILL.md` |
 
-A pipeline file has a default export — either the typed builder (`import { pipeline, stage } from "@callumvass/lattice/builder"`) or a plain object. A pipeline named `my-flow` registers `/my-flow <goal>` as a slash command automatically. See [`docs/custom-pipelines.md`](docs/custom-pipelines.md).
+A pipeline file has a default export — either the typed builder (`import { parallel, pipeline, stage } from "@callumvass/lattice/builder"`) or a plain object. A pipeline named `my-flow` registers `/my-flow <goal>` as a slash command automatically. See [`docs/custom-pipelines.md`](docs/custom-pipelines.md).
 
 **If you use the typed builder**, install `@callumvass/lattice` where your pipelines live so they can resolve the import:
 
@@ -78,7 +78,7 @@ Lattice exposes one framework command, independent of your pipelines:
 - `docs/what-lattice-does.md`: overview and core concepts
 - `docs/install.md`: setup and plugin registration
 - `docs/run-a-pipeline.md`: running a pipeline, pauses, retries
-- `docs/custom-pipelines.md`: authoring a pipeline, including dynamic stage expansion
+- `docs/custom-pipelines.md`: authoring a pipeline, including parallel groups and dynamic stage expansion
 - `docs/configuration.md`: overriding agents, stages, skill paths, and model selection
 - `docs/skills.md`: skill discovery and selection
 - `docs/state-and-completion.md`: `.lattice/` files, completion methods, retry behavior

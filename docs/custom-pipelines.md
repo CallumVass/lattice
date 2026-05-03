@@ -10,7 +10,7 @@ Each file exports a pipeline definition as its default export. The filename does
 ## Builder API (typed)
 
 ```ts
-import { pipeline, ref, stage } from "@callumvass/lattice/builder";
+import { parallel, pipeline, ref, stage } from "@callumvass/lattice/builder";
 
 export default pipeline("quick-fix", {
   stages: [
@@ -19,6 +19,22 @@ export default pipeline("quick-fix", {
       completion: "signal",
       signals: ["complete", "blocked"],
       context: "isolated",
+    }),
+    parallel("reviewers", {
+      stages: [
+        stage("security-review", {
+          agent: "security-reviewer",
+          completion: "signal",
+          signals: ["complete", "blocked"],
+          completedContext: "summaries",
+        }),
+        stage("quality-review", {
+          agent: "quality-reviewer",
+          completion: "signal",
+          signals: ["complete", "blocked"],
+          completedContext: "summaries",
+        }),
+      ],
     }),
     ref("review-loop"),
   ],
@@ -44,6 +60,28 @@ export default {
       completion: "signal",
       signals: ["complete", "blocked"],
       context: "isolated",
+    },
+    {
+      type: "parallel",
+      id: "reviewers",
+      stages: [
+        {
+          id: "security-review",
+          type: "stage",
+          agent: "security-reviewer",
+          completion: "signal",
+          signals: ["complete", "blocked"],
+          context: "isolated",
+        },
+        {
+          id: "quality-review",
+          type: "stage",
+          agent: "quality-reviewer",
+          completion: "signal",
+          signals: ["complete", "blocked"],
+          context: "isolated",
+        },
+      ],
     },
     { type: "pipeline", pipeline: "review-loop" },
   ],
@@ -147,6 +185,61 @@ stage("author-ticket", {
 ## Pipeline Composition
 
 Use `ref("<pipeline-name>")` or `{ type: "pipeline", pipeline: "<pipeline-name>" }` to inline another pipeline's stages. Nested pipelines are flattened at load time. Circular references are rejected.
+
+## Parallel Groups
+
+Use `parallel("<group-id>", { stages })` when multiple independent stages should run at the same pipeline point. Lattice launches the group members as isolated subtasks from the parent session, tracks each child session separately, and advances only after every member completes.
+
+```ts
+stage("prepare-review", {
+  agent: "review-orchestrator",
+  completion: "signal",
+  signals: ["complete", "blocked"],
+  prompt: "Inspect the diff and write reviewer briefs under `.lattice/review/`.",
+}),
+
+parallel("reviewers", {
+  maxConcurrency: 4,
+  stages: [
+    stage("security", {
+      agent: "security-reviewer",
+      completion: "signal",
+      signals: ["complete", "blocked"],
+      completedContext: "summaries",
+      prompt: "Review security concerns. Write findings to `.lattice/review/security.md`.",
+    }),
+    stage("scope", {
+      agent: "scope-reviewer",
+      completion: "signal",
+      signals: ["complete", "blocked"],
+      completedContext: "summaries",
+      prompt: "Review scope and product fit. Write findings to `.lattice/review/scope.md`.",
+    }),
+    stage("quality", {
+      agent: "quality-reviewer",
+      completion: "signal",
+      signals: ["complete", "blocked"],
+      completedContext: "summaries",
+      prompt: "Review code quality and maintainability. Write findings to `.lattice/review/quality.md`.",
+    }),
+  ],
+}),
+
+stage("review-verdict", {
+  agent: "review-orchestrator",
+  completion: "signal",
+  signals: ["pass", "fail", "blocked"],
+  prompt: "Read `.lattice/review/*.md` and produce the final review verdict.",
+});
+```
+
+Parallel group rules:
+
+- Members must use `context: "isolated"`; shared-context parallelism is rejected because multiple prompts would compete in the same conversation.
+- Members cannot use `pauseAfter`; put checkpoints before or after the group.
+- `maxConcurrency` is optional. Omit it to launch every member together, or set it to a positive integer to cap active subtasks.
+- In reviewer swarms, worker stages should usually signal `complete` after writing findings. Put `pass` or `fail` on the follow-up orchestrator stage so all perspectives are collected before the pipeline pauses or rewinds.
+- `completedContext` for group members only includes stages before the group. A later worker does not inherit another worker's summary, preserving reviewer independence when `maxConcurrency` is lower than the group size.
 
 ## Dynamic Stage Expansion
 

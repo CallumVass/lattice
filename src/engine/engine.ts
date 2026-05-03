@@ -24,17 +24,58 @@ export async function expandCurrentStageIfNeeded(
   config: EngineConfig,
 ): Promise<FlattenedPipeline> {
   const effective = effectivePipeline(instance, pipeline);
-  const stageDef = effective.stages[instance.currentStageIndex];
-  const stageInst = instance.stages[instance.currentStageIndex];
+  return expandStageAt(instance, effective, config, instance.currentStageIndex);
+}
+
+export async function expandRunnableStagesIfNeeded(
+  instance: PipelineInstance,
+  pipeline: FlattenedPipeline,
+  config: EngineConfig,
+): Promise<FlattenedPipeline> {
+  let effective = effectivePipeline(instance, pipeline);
+
+  while (true) {
+    const expandableIndex = currentRangeIndices(effective, instance.currentStageIndex).find((index) => {
+      const stageDef = effective.stages[index];
+      const stageInst = instance.stages[index];
+      return !!stageDef?.expand && stageInst?.status === "pending";
+    });
+
+    if (expandableIndex === undefined) return effective;
+    effective = await expandStageAt(instance, effective, config, expandableIndex);
+  }
+}
+
+async function expandStageAt(
+  instance: PipelineInstance,
+  effective: FlattenedPipeline,
+  config: EngineConfig,
+  stageIndex: number,
+): Promise<FlattenedPipeline> {
+  const stageDef = effective.stages[stageIndex];
+  const stageInst = instance.stages[stageIndex];
   if (!stageDef?.expand || !stageInst || stageInst.status !== "pending") return effective;
 
-  const expanded = await renderExpandedStages(stageDef, config.projectDir);
+  const expanded = (await renderExpandedStages(stageDef, config.projectDir)).map((stage) => ({
+    ...stage,
+    ...(stageDef.parallelGroup && !stage.parallelGroup && { parallelGroup: stageDef.parallelGroup }),
+  }));
+  if (stageDef.parallelGroup) {
+    for (const stage of expanded) {
+      if (stage.context !== "isolated") {
+        throw new Error(`Dynamic parallel stage "${stage.id}" must use isolated context`);
+      }
+      if (stage.pauseAfter !== false) {
+        throw new Error(`Dynamic parallel stage "${stage.id}" cannot use pauseAfter`);
+      }
+    }
+  }
   const nextStages = [...effective.stages];
-  nextStages.splice(instance.currentStageIndex, 1, ...expanded);
+  nextStages.splice(stageIndex, 1, ...expanded);
 
   const nextInstances = [...instance.stages];
   nextInstances.splice(
-    instance.currentStageIndex,
+    stageIndex,
     1,
     ...expanded.map((stage) => ({ id: stage.id, agent: stage.agent, status: "pending" as const })),
   );
@@ -137,12 +178,83 @@ interface EngineResult {
   diagnostics?: string[];
 }
 
-/** What the plugin should do to run the next stage. */
+/** What the plugin should do to run a stage. */
 interface StageAction {
   type: "inject" | "subtask";
   agent: string;
   prompt: string;
   stageId: string;
+  stageIndex: number;
+}
+
+interface StageRange {
+  start: number;
+  end: number;
+}
+
+function sameParallelGroup(a: StageDefinition["parallelGroup"], b: StageDefinition["parallelGroup"]): boolean {
+  return !!a && !!b && a.id === b.id;
+}
+
+function currentRange(pipeline: FlattenedPipeline, stageIndex: number): StageRange {
+  const stage = pipeline.stages[stageIndex];
+  const group = stage?.parallelGroup;
+  if (!stage || !group) return { start: stageIndex, end: stageIndex + 1 };
+
+  let start = stageIndex;
+  while (start > 0 && sameParallelGroup(pipeline.stages[start - 1]?.parallelGroup, group)) start--;
+
+  let end = stageIndex + 1;
+  while (end < pipeline.stages.length && sameParallelGroup(pipeline.stages[end]?.parallelGroup, group)) end++;
+
+  return { start, end };
+}
+
+function currentRangeIndices(pipeline: FlattenedPipeline, stageIndex: number): number[] {
+  const range = currentRange(pipeline, stageIndex);
+  const indices: number[] = [];
+  for (let index = range.start; index < range.end; index++) indices.push(index);
+  return indices;
+}
+
+function nextRunnableIndex(instance: PipelineInstance, start: number): number {
+  let index = start;
+  while (index < instance.stages.length && instance.stages[index]?.status === "skipped") index++;
+  return index;
+}
+
+function runnableStageIndices(instance: PipelineInstance, pipeline: FlattenedPipeline): number[] {
+  if (instance.status !== "running") return [];
+
+  const currentStage = instance.stages[instance.currentStageIndex];
+  const currentStageDef = pipeline.stages[instance.currentStageIndex];
+  if (!currentStage || !currentStageDef) return [];
+
+  const indices = currentRangeIndices(pipeline, instance.currentStageIndex);
+  const group = currentStageDef.parallelGroup;
+  if (!group) return currentStage.status === "pending" ? [instance.currentStageIndex] : [];
+
+  const activeCount = indices.filter((index) => {
+    const status = instance.stages[index]?.status;
+    return status === "dispatching" || status === "running";
+  }).length;
+  const limit = group.maxConcurrency ?? indices.length;
+  const available = Math.max(0, limit - activeCount);
+  if (available === 0) return [];
+
+  return indices.filter((index) => instance.stages[index]?.status === "pending").slice(0, available);
+}
+
+function completedStagesForStage(
+  instance: PipelineInstance,
+  pipeline: FlattenedPipeline,
+  stageIndex: number,
+): PipelineInstance["stages"] {
+  const stageDef = pipeline.stages[stageIndex];
+  if (!stageDef?.parallelGroup) return instance.stages.filter((s) => s.status === "completed");
+
+  const range = currentRange(pipeline, stageIndex);
+  return instance.stages.slice(0, range.start).filter((s) => s.status === "completed");
 }
 
 // --- Start ---
@@ -195,13 +307,26 @@ export async function startPipeline(
 
 // --- Build stage action (what the plugin should execute) ---
 
+export function buildStageActions(instance: PipelineInstance, pipeline: FlattenedPipeline): StageAction[] {
+  return runnableStageIndices(instance, pipeline)
+    .map((stageIndex) => buildStageActionAt(instance, pipeline, stageIndex))
+    .filter((action): action is StageAction => action !== undefined);
+}
+
 export function buildStageAction(instance: PipelineInstance, pipeline: FlattenedPipeline): StageAction | undefined {
-  const stageIndex = instance.currentStageIndex;
+  return buildStageActions(instance, pipeline)[0];
+}
+
+function buildStageActionAt(
+  instance: PipelineInstance,
+  pipeline: FlattenedPipeline,
+  stageIndex: number,
+): StageAction | undefined {
   const stageDef = pipeline.stages[stageIndex];
   const stageInstance = instance.stages[stageIndex];
   if (!stageDef || !stageInstance || stageInstance.status !== "pending") return undefined;
 
-  const completedStages = instance.stages.filter((s) => s.status === "completed");
+  const completedStages = completedStagesForStage(instance, pipeline, stageIndex);
   const prompt = composePrompt({
     goal: instance.goal,
     completedStages,
@@ -216,6 +341,7 @@ export function buildStageAction(instance: PipelineInstance, pipeline: Flattened
     agent: stageDef.agent,
     prompt,
     stageId: stageDef.id,
+    stageIndex,
   };
 }
 
@@ -225,7 +351,16 @@ export async function markStageDispatching(
   config: EngineConfig,
   parentSessionId?: string,
 ): Promise<string | undefined> {
-  const stageInstance = instance.stages[instance.currentStageIndex];
+  return markStageDispatchingAt(instance, config, instance.currentStageIndex, parentSessionId);
+}
+
+export async function markStageDispatchingAt(
+  instance: PipelineInstance,
+  config: EngineConfig,
+  stageIndex: number,
+  parentSessionId?: string,
+): Promise<string | undefined> {
+  const stageInstance = instance.stages[stageIndex];
   if (!stageInstance || stageInstance.status !== "pending") return undefined;
 
   const now = new Date().toISOString();
@@ -245,11 +380,29 @@ export async function markStageRunning(
   config: EngineConfig,
   childSessionId?: string,
 ): Promise<void> {
-  const stageInstance = instance.stages[instance.currentStageIndex];
+  return markStageRunningAt(instance, config, instance.currentStageIndex, childSessionId);
+}
+
+/** Mark a stage as running after the plugin has executed the action. */
+export async function markStageRunningAt(
+  instance: PipelineInstance,
+  config: EngineConfig,
+  stageIndex: number,
+  childSessionId?: string,
+): Promise<void> {
+  const stageInstance = instance.stages[stageIndex];
   if (!stageInstance) return;
+  if (
+    stageInstance.status === "completed" ||
+    stageInstance.status === "rejected" ||
+    stageInstance.status === "skipped"
+  ) {
+    return;
+  }
+  if (stageInstance.status === "failed") return;
 
   stageInstance.status = "running";
-  stageInstance.startedAt = new Date().toISOString();
+  stageInstance.startedAt = stageInstance.startedAt ?? new Date().toISOString();
   if (childSessionId) {
     stageInstance.sessionId = childSessionId;
   }
@@ -266,12 +419,21 @@ export async function checkStageCompletion(
   pipeline: FlattenedPipeline,
   config: EngineConfig,
 ): Promise<CompletionResult> {
-  const currentStage = instance.stages[instance.currentStageIndex];
+  return checkStageCompletionAt(instance, pipeline, config, instance.currentStageIndex);
+}
+
+export async function checkStageCompletionAt(
+  instance: PipelineInstance,
+  pipeline: FlattenedPipeline,
+  config: EngineConfig,
+  stageIndex: number,
+): Promise<CompletionResult> {
+  const currentStage = instance.stages[stageIndex];
   if (!currentStage || currentStage.status !== "running") {
     return { complete: false };
   }
 
-  const stageDef = pipeline.stages[instance.currentStageIndex];
+  const stageDef = pipeline.stages[stageIndex];
   if (!stageDef) {
     return { complete: false };
   }
@@ -291,8 +453,18 @@ export async function advancePipeline(
   config: EngineConfig,
   completionResult: CompletionResult,
 ): Promise<EngineResult> {
-  const currentStage = instance.stages[instance.currentStageIndex];
-  const currentStageDef = pipeline.stages[instance.currentStageIndex];
+  return advancePipelineAt(instance, pipeline, config, completionResult, instance.currentStageIndex);
+}
+
+export async function advancePipelineAt(
+  instance: PipelineInstance,
+  pipeline: FlattenedPipeline,
+  config: EngineConfig,
+  completionResult: CompletionResult,
+  stageIndex: number,
+): Promise<EngineResult> {
+  const currentStage = instance.stages[stageIndex];
+  const currentStageDef = pipeline.stages[stageIndex];
   if (!currentStage) {
     return { instance };
   }
@@ -329,10 +501,23 @@ export async function advancePipeline(
     };
   }
 
-  let nextIndex = instance.currentStageIndex + 1;
-  while (nextIndex < instance.stages.length && instance.stages[nextIndex]?.status === "skipped") {
-    nextIndex++;
+  const range = currentStageDef?.parallelGroup
+    ? currentRange(pipeline, stageIndex)
+    : { start: stageIndex, end: stageIndex + 1 };
+  const groupComplete = currentStageDef?.parallelGroup
+    ? currentRangeIndices(pipeline, stageIndex).every((index) => {
+        const status = instance.stages[index]?.status;
+        return status === "completed" || status === "skipped";
+      })
+    : true;
+
+  if (!groupComplete) {
+    instance.updatedAt = new Date().toISOString();
+    await saveInstance(config.projectDir, instance);
+    return { instance, ...(diagnostics.length > 0 && { diagnostics }) };
   }
+
+  const nextIndex = nextRunnableIndex(instance, range.end);
 
   if (nextIndex >= instance.stages.length) {
     instance.status = "completed";

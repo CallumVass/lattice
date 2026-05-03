@@ -39,6 +39,16 @@ function resolveEntry(entry: StageEntry, registry: PipelineRegistry, visited: Se
     return [entry];
   }
 
+  if (entry.type === "parallel") {
+    return entry.stages.map((stage) => ({
+      ...stage,
+      parallelGroup: {
+        id: entry.id,
+        ...(entry.maxConcurrency !== undefined && { maxConcurrency: entry.maxConcurrency }),
+      },
+    }));
+  }
+
   const referenced = registry.get(entry.pipeline);
   if (!referenced) {
     throw new Error(`Pipeline "${entry.pipeline}" not found in registry`);

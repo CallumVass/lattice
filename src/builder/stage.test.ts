@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ref, stage } from "./stage.js";
+import { parallel, ref, stage } from "./stage.js";
 
 describe("stage", () => {
   it("creates a stage with defaults", () => {
@@ -102,5 +102,37 @@ describe("ref", () => {
       type: "pipeline",
       pipeline: "review",
     });
+  });
+});
+
+describe("parallel", () => {
+  it("creates a parallel stage group", () => {
+    const group = parallel("reviewers", {
+      stages: [
+        stage("security", { agent: "security-reviewer", completion: "signal", signals: ["complete"] }),
+        stage("quality", { agent: "quality-reviewer", completion: "signal", signals: ["complete"] }),
+      ],
+      maxConcurrency: 2,
+    });
+
+    expect(group.type).toBe("parallel");
+    expect(group.id).toBe("reviewers");
+    expect(group.maxConcurrency).toBe(2);
+    expect(group.stages.map((s) => s.id)).toEqual(["security", "quality"]);
+  });
+
+  it("rejects shared-context parallel stages", () => {
+    expect(() =>
+      parallel("reviewers", {
+        stages: [
+          stage("security", {
+            agent: "security-reviewer",
+            completion: "signal",
+            signals: ["complete"],
+            context: "shared",
+          }),
+        ],
+      }),
+    ).toThrow("Parallel stages must use isolated context");
   });
 });

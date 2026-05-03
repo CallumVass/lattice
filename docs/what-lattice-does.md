@@ -5,7 +5,7 @@ Lattice is an OpenCode plugin and TypeScript library for running agent pipelines
 At a high level it does five things:
 
 1. Registers slash commands from the pipeline definitions you supply.
-2. Starts the right agent for each stage.
+2. Starts the right agent or parallel sub-agent group for each pipeline step.
 3. Decides whether a stage should reuse context or start cold.
 4. Injects relevant skills into the active agent.
 5. Persists pipeline state so runs survive restarts.
@@ -14,8 +14,9 @@ Lattice **does not ship agents, skills, or pipelines** — you provide them. Lat
 
 ## Core Terms
 
-- **Pipeline**: a named sequence of stages (a TypeScript file with a default export).
+- **Pipeline**: a named sequence of stages and optional parallel groups (a TypeScript file with a default export).
 - **Stage**: one agent run with a completion rule.
+- **Parallel group**: multiple isolated stages launched together from the same parent session. The pipeline joins after every group member completes.
 - `context: "shared"`: continue in the same conversation context.
 - `context: "isolated"`: start a cold subtask for independence.
 - **Skill**: markdown instructions injected into an agent's system prompt.
@@ -42,7 +43,7 @@ Project paths override global ones with the same name.
 
 1. User runs a slash command registered by one of your pipelines (e.g. `/review <goal>`).
 2. Lattice creates a pipeline instance in `.lattice/state/`.
-3. It launches the first stage after the control command turn is idle, then waits for the stage's completion rule.
-4. When a stage completes, it advances automatically; after isolated subtasks, the following stage waits for the parent session to become idle before dispatch.
+3. It launches the first stage or parallel group after the control command turn is idle, then waits for each active stage's completion rule.
+4. When a single stage completes, it advances automatically. When a parallel group is active, Lattice waits until every group member completes before advancing.
 5. If a stage has `pauseAfter`, the pipeline pauses for user sign-off through a question gate or `/lattice continue`.
 6. If a stage returns `fail` or `blocked`, the pipeline pauses until the user chooses retry, accept, or abort through the question gate or `/lattice` commands.

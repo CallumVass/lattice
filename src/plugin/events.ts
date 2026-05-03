@@ -1,7 +1,7 @@
 import type { Plugin } from "@opencode-ai/plugin";
 import {
-  advancePipeline,
-  checkStageCompletion,
+  advancePipelineAt,
+  checkStageCompletionAt,
   cleanBlockedFile,
   cleanSignals,
   effectivePipeline,
@@ -13,7 +13,7 @@ import {
 import type { StageTelemetry } from "../schema/index.js";
 import type { createLogger } from "./logger.js";
 import { completionMessage, failureMessage, pauseInstruction, pauseMessage } from "./notifications.js";
-import { executeStageAction, type StageRunnerDeps } from "./stage-runner.js";
+import { executeStageActions, type StageRunnerDeps } from "./stage-runner.js";
 
 interface AssistantMessageInfo {
   sessionID?: string;
@@ -74,20 +74,56 @@ function eventSessionId(event: unknown): string | undefined {
   return properties?.sessionID ?? properties?.info?.sessionID;
 }
 
-function currentStageSessionId(
-  instance: { parentSessionId?: string; currentStageIndex: number; stages: Array<{ sessionId?: string }> },
-  fallbackSessionId?: string,
-): string | undefined {
-  return instance.stages[instance.currentStageIndex]?.sessionId ?? instance.parentSessionId ?? fallbackSessionId;
+function parentSessionId(instance: { parentSessionId?: string }, fallbackSessionId?: string): string | undefined {
+  return instance.parentSessionId ?? fallbackSessionId;
 }
 
-function isCurrentStageSession(
-  instance: { parentSessionId?: string; currentStageIndex: number; stages: Array<{ sessionId?: string }> },
+function isParentSession(
+  instance: { parentSessionId?: string },
   fallbackSessionId: string | undefined,
   incomingSessionId: string | undefined,
 ): boolean {
-  const expected = currentStageSessionId(instance, fallbackSessionId);
-  return !expected || incomingSessionId === expected;
+  const expected = parentSessionId(instance, fallbackSessionId);
+  return !!expected && incomingSessionId === expected;
+}
+
+function runningStageIndexForSession(
+  instance: {
+    parentSessionId?: string;
+    stages: Array<{ agent: string; sessionId?: string; status: string }>;
+  },
+  fallbackSessionId: string | undefined,
+  incomingSessionId: string | undefined,
+  agent?: string,
+): number | undefined {
+  const running = instance.stages
+    .map((stage, index) => ({ stage, index }))
+    .filter(({ stage }) => stage.status === "running")
+    .filter(({ stage }) => !agent || stage.agent === agent);
+
+  const exact = running.find(({ stage }) => !!incomingSessionId && stage.sessionId === incomingSessionId);
+  if (exact) return exact.index;
+
+  const parent = parentSessionId(instance, fallbackSessionId);
+  const shared = running.find(
+    ({ stage }) => !!parent && incomingSessionId === parent && (!stage.sessionId || stage.sessionId === parent),
+  );
+  if (shared) return shared.index;
+
+  if (!incomingSessionId && running.length === 1) return running[0]?.index;
+  return undefined;
+}
+
+function hasPendingInSameParallelGroup(
+  instance: { stages: Array<{ status: string }> },
+  pipeline: FlattenedPipeline,
+  stageIndex: number,
+): boolean {
+  const group = pipeline.stages[stageIndex]?.parallelGroup;
+  if (!group) return false;
+  return pipeline.stages.some(
+    (stage, index) => stage.parallelGroup?.id === group.id && instance.stages[index]?.status === "pending",
+  );
 }
 
 /**
@@ -96,7 +132,7 @@ function isCurrentStageSession(
  * status notification when the pipeline pauses, gates, fails, or completes.
  */
 export function createEventHandler(deps: EventHandlerDeps): EventHandler {
-  let processing = false;
+  let idleQueue = Promise.resolve();
 
   return async ({ event }) => {
     if (event.type === "message.updated") {
@@ -107,10 +143,15 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
 
       const instance = deps.state.activeInstance;
       if (!instance || instance.status !== "running") return;
-      const stage = instance.stages[instance.currentStageIndex];
+      const stageIndex = runningStageIndexForSession(
+        instance,
+        deps.state.parentSessionId,
+        msg.properties?.sessionID ?? info.sessionID,
+        info.agent,
+      );
+      if (stageIndex === undefined) return;
+      const stage = instance.stages[stageIndex];
       if (!stage || stage.status !== "running") return;
-      if (!isCurrentStageSession(instance, deps.state.parentSessionId, msg.properties?.sessionID ?? info.sessionID))
-        return;
       if (info.agent && info.agent !== stage.agent) return;
 
       if (stage.telemetry?.configuredModel && info.modelID && stage.telemetry.configuredModel !== info.modelID) {
@@ -134,116 +175,123 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
       return;
     }
     if (event.type !== "session.idle") return;
-    const sessionId = eventSessionId(event);
 
-    const instance = deps.state.activeInstance;
-    if (!instance || instance.status !== "running") return;
-    if (!isCurrentStageSession(instance, deps.state.parentSessionId, sessionId)) return;
-    if (processing) return;
-    processing = true;
+    const run = idleQueue.catch(() => {}).then(async () => handleIdle(eventSessionId(event), deps));
+    idleQueue = run.then(
+      () => {},
+      () => {},
+    );
+    await run;
+  };
+}
 
-    try {
-      const currentStage = instance.stages[instance.currentStageIndex];
-      if (!currentStage) return;
+async function handleIdle(sessionId: string | undefined, deps: EventHandlerDeps): Promise<void> {
+  const instance = deps.state.activeInstance;
+  if (!instance || instance.status !== "running") return;
 
-      const staticFlat = await deps.getFlattened(instance.pipelineName);
-      let flat = effectivePipeline(instance, staticFlat);
+  try {
+    const staticFlat = await deps.getFlattened(instance.pipelineName);
+    const flat = effectivePipeline(instance, staticFlat);
 
-      if (currentStage.status === "pending") {
+    const stageIndex = runningStageIndexForSession(instance, deps.state.parentSessionId, sessionId);
+    if (stageIndex === undefined) {
+      if (!isParentSession(instance, deps.state.parentSessionId, sessionId)) return;
+      if (deps.scheduleCurrentStage) {
+        await deps.scheduleCurrentStage();
+      } else {
+        const parent = deps.state.parentSessionId ?? instance.parentSessionId;
+        if (parent) await executeStageActions(instance, parent, staticFlat, deps);
+      }
+      return;
+    }
+
+    const currentStage = instance.stages[stageIndex];
+    if (!currentStage) return;
+
+    if (currentStage.status === "dispatching") return;
+
+    if (currentStage.status !== "running") return;
+
+    const parentSessionIdBeforeAdvance = deps.state.parentSessionId ?? instance.parentSessionId;
+    const completedInParentSession = !currentStage.sessionId || currentStage.sessionId === parentSessionIdBeforeAdvance;
+    const completion = await checkStageCompletionAt(instance, flat, deps.state.engineConfig, stageIndex);
+    if (!completion.complete) return;
+
+    deps.log.info(`Stage "${currentStage.id}" complete: ${completion.summary ?? "done"}`);
+
+    await cleanBlockedFile(deps.state.engineConfig.projectDir);
+
+    const result = await advancePipelineAt(instance, flat, deps.state.engineConfig, completion, stageIndex);
+    deps.state.activeInstance = result.instance;
+
+    if (result.diagnostics) {
+      for (const msg of result.diagnostics) {
+        deps.log.warn(msg);
+      }
+    }
+
+    if (result.instance.status === "running") {
+      const parentSessionId = deps.state.parentSessionId ?? result.instance.parentSessionId;
+      if (hasPendingInSameParallelGroup(result.instance, flat, stageIndex) && parentSessionId) {
         if (deps.scheduleCurrentStage) {
           await deps.scheduleCurrentStage();
         } else {
-          const parentSessionId = deps.state.parentSessionId ?? instance.parentSessionId;
-          if (parentSessionId) {
-            await executeStageAction(instance, parentSessionId, staticFlat, deps);
-            flat = effectivePipeline(instance, staticFlat);
-          }
+          await executeStageActions(result.instance, parentSessionId, flat, deps);
         }
-        return;
+      } else if (!completedInParentSession) {
+        deps.log.info("Waiting for parent session idle before dispatching the next stage");
+      } else if (deps.scheduleCurrentStage) {
+        await deps.scheduleCurrentStage();
+      } else {
+        if (parentSessionId) await executeStageActions(result.instance, parentSessionId, flat, deps);
       }
-
-      if (currentStage.status === "dispatching") return;
-
-      if (currentStage.status !== "running") return;
-
-      const parentSessionIdBeforeAdvance = deps.state.parentSessionId ?? instance.parentSessionId;
-      const completedInParentSession =
-        !currentStage.sessionId || currentStage.sessionId === parentSessionIdBeforeAdvance;
-      const completion = await checkStageCompletion(instance, flat, deps.state.engineConfig);
-      if (!completion.complete) return;
-
-      deps.log.info(`Stage "${currentStage.id}" complete: ${completion.summary ?? "done"}`);
-
-      await cleanBlockedFile(deps.state.engineConfig.projectDir);
-
-      const result = await advancePipeline(instance, flat, deps.state.engineConfig, completion);
-      deps.state.activeInstance = result.instance;
-
-      if (result.diagnostics) {
-        for (const msg of result.diagnostics) {
-          deps.log.warn(msg);
-        }
-      }
-
-      if (result.instance.status === "running") {
-        if (!completedInParentSession) {
-          deps.log.info("Waiting for parent session idle before dispatching the next stage");
-        } else if (deps.scheduleCurrentStage) {
-          await deps.scheduleCurrentStage();
-        } else {
-          const parentSessionId = deps.state.parentSessionId ?? result.instance.parentSessionId;
-          if (parentSessionId) await executeStageAction(result.instance, parentSessionId, flat, deps);
-        }
-      }
-
-      const buildModel = resolveModelOverride(deps.latticeConfig, "build");
-      const parentSessionId = deps.state.parentSessionId ?? result.instance.parentSessionId;
-
-      if (result.pause && parentSessionId) {
-        deps.log.info(`Pipeline paused: ${result.pause.kind} at ${result.pause.stageId}`);
-        await deps.sessions.injectPrompt(
-          parentSessionId,
-          "build",
-          pauseMessage(instance.pipelineName, result.pause),
-          buildModel,
-          pauseInstruction(instance.pipelineName, result.pause),
-        );
-      }
-
-      if (result.instance.status === "completed") {
-        await cleanSignals(deps.state.engineConfig.projectDir, result.instance.id);
-        await cleanBlockedFile(deps.state.engineConfig.projectDir);
-        deps.log.info(`Pipeline "${instance.pipelineName}" completed`);
-
-        if (parentSessionId) {
-          await deps.sessions.notify(parentSessionId, completionMessage(result.instance)).catch(() => {});
-        }
-
-        deps.state.activeInstance = undefined;
-      }
-    } catch (err) {
-      deps.log.error(`Pipeline error: ${err}`);
-      const currentStage = instance.stages[instance.currentStageIndex];
-      instance.status = "failed";
-      instance.updatedAt = new Date().toISOString();
-      if (currentStage) {
-        currentStage.status = "failed";
-        currentStage.summary = `Error: ${err}`;
-      }
-      await saveInstance(deps.state.engineConfig.projectDir, instance);
-      deps.state.activeInstance = undefined;
-
-      const parentSessionId = deps.state.parentSessionId ?? instance.parentSessionId;
-      if (parentSessionId) {
-        await deps.sessions.injectPrompt(
-          parentSessionId,
-          "build",
-          failureMessage(instance.pipelineName, currentStage?.id, err),
-          resolveModelOverride(deps.latticeConfig, "build"),
-        );
-      }
-    } finally {
-      processing = false;
     }
-  };
+
+    const buildModel = resolveModelOverride(deps.latticeConfig, "build");
+    const parentSessionId = deps.state.parentSessionId ?? result.instance.parentSessionId;
+
+    if (result.pause && parentSessionId) {
+      deps.log.info(`Pipeline paused: ${result.pause.kind} at ${result.pause.stageId}`);
+      await deps.sessions.injectPrompt(
+        parentSessionId,
+        "build",
+        pauseMessage(instance.pipelineName, result.pause),
+        buildModel,
+        pauseInstruction(instance.pipelineName, result.pause),
+      );
+    }
+
+    if (result.instance.status === "completed") {
+      await cleanSignals(deps.state.engineConfig.projectDir, result.instance.id);
+      await cleanBlockedFile(deps.state.engineConfig.projectDir);
+      deps.log.info(`Pipeline "${instance.pipelineName}" completed`);
+
+      if (parentSessionId) {
+        await deps.sessions.notify(parentSessionId, completionMessage(result.instance)).catch(() => {});
+      }
+
+      deps.state.activeInstance = undefined;
+    }
+  } catch (err) {
+    deps.log.error(`Pipeline error: ${err}`);
+    const currentStage = instance.stages[instance.currentStageIndex];
+    instance.status = "failed";
+    instance.updatedAt = new Date().toISOString();
+    if (currentStage) {
+      currentStage.status = "failed";
+      currentStage.summary = `Error: ${err}`;
+    }
+    await saveInstance(deps.state.engineConfig.projectDir, instance);
+    deps.state.activeInstance = undefined;
+
+    const parentSessionId = deps.state.parentSessionId ?? instance.parentSessionId;
+    if (parentSessionId) {
+      await deps.sessions.injectPrompt(
+        parentSessionId,
+        "build",
+        failureMessage(instance.pipelineName, currentStage?.id, err),
+        resolveModelOverride(deps.latticeConfig, "build"),
+      );
+    }
+  }
 }

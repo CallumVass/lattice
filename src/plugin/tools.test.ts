@@ -2,7 +2,7 @@ import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { pipeline, stage } from "../builder/index.js";
+import { parallel, pipeline, stage } from "../builder/index.js";
 import { type FlattenedPipeline, flattenPipeline, type PipelineRegistry } from "../engine/index.js";
 import type { PipelineInstance } from "../schema/index.js";
 import type { PluginState } from "./state.js";
@@ -613,6 +613,77 @@ describe("createLatticeSignalTool", () => {
 
     const signal = await readFile(join(projectDir, ".lattice", "signals", "run-1", "code-review.json"), "utf-8");
     expect(JSON.parse(signal)).toEqual({ status: "fail", reason: "Found 2 issues" });
+  });
+
+  it("writes a signal for the matching parallel child session", async () => {
+    const definition = pipeline("review", {
+      stages: [
+        parallel("reviewers", {
+          stages: [
+            stage("security", { agent: "security-reviewer", completion: "signal", signals: ["complete"] }),
+            stage("quality", { agent: "quality-reviewer", completion: "signal", signals: ["complete"] }),
+          ],
+        }),
+      ],
+    });
+    const registry = registryOf(definition);
+    const state = makeState(
+      registry,
+      runningInstance({
+        pipelineName: "review",
+        stages: [
+          { id: "security", agent: "security-reviewer", status: "running", sessionId: "child-security" },
+          { id: "quality", agent: "quality-reviewer", status: "running", sessionId: "child-quality" },
+        ],
+      }),
+    );
+
+    const result = await createLatticeSignalTool(deps(state)).execute(
+      { status: "complete", reason: "quality done" },
+      toolContext({ sessionID: "child-quality", agent: "quality-reviewer" }),
+    );
+
+    expect(result).toBe("Signal recorded: complete - quality done");
+    const signal = await readFile(join(projectDir, ".lattice", "signals", "run-1", "quality.json"), "utf-8");
+    expect(JSON.parse(signal)).toEqual({ status: "complete", reason: "quality done" });
+  });
+
+  it("accepts early signals while a parallel child is still dispatching", async () => {
+    const definition = pipeline("review", {
+      stages: [
+        parallel("reviewers", {
+          stages: [
+            stage("security", { agent: "security-reviewer", completion: "signal", signals: ["complete"] }),
+            stage("quality", { agent: "quality-reviewer", completion: "signal", signals: ["complete"] }),
+          ],
+        }),
+      ],
+    });
+    const registry = registryOf(definition);
+    const state = makeState(
+      registry,
+      runningInstance({
+        pipelineName: "review",
+        stages: [
+          { id: "security", agent: "security-reviewer", status: "dispatching" },
+          { id: "quality", agent: "quality-reviewer", status: "dispatching" },
+        ],
+      }),
+    );
+
+    const result = await createLatticeSignalTool(deps(state)).execute(
+      { status: "complete", reason: "quality done" },
+      toolContext({ sessionID: "child-quality", agent: "quality-reviewer" }),
+    );
+
+    expect(result).toBe("Signal recorded: complete - quality done");
+    expect(state.activeInstance?.stages[1]).toMatchObject({
+      id: "quality",
+      status: "running",
+      sessionId: "child-quality",
+    });
+    const signal = await readFile(join(projectDir, ".lattice", "signals", "run-1", "quality.json"), "utf-8");
+    expect(JSON.parse(signal)).toEqual({ status: "complete", reason: "quality done" });
   });
 
   it("refuses signals from the wrong agent", async () => {

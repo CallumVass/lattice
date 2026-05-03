@@ -41,7 +41,11 @@ export class SkillStore {
 export function activeStageSkillKey(instance: PipelineInstance | undefined): string | undefined {
   const stage = instance?.stages[instance.currentStageIndex];
   if (!instance || !stage) return undefined;
-  return `${instance.id}:${stage.id}`;
+  return stageSkillKey(instance, stage.id);
+}
+
+export function stageSkillKey(instance: PipelineInstance, stageId: string): string {
+  return `${instance.id}:${stageId}`;
 }
 
 export function bindActiveStageSkillsToSession(
@@ -50,9 +54,12 @@ export function bindActiveStageSkillsToSession(
   sessionID: string | undefined,
   agent: string | undefined,
 ) {
-  const stage = instance?.stages[instance.currentStageIndex];
-  if (!sessionID || !agent || !instance || instance.status !== "running" || !stage || stage.agent !== agent) return;
-  skillStore.applyStageToSession(activeStageSkillKey(instance), sessionID);
+  if (!sessionID || !agent || !instance || instance.status !== "running") return;
+  const stage =
+    instance.stages.find((candidate) => candidate.sessionId === sessionID && candidate.agent === agent) ??
+    instance.stages[instance.currentStageIndex];
+  if (!stage || stage.agent !== agent) return;
+  skillStore.applyStageToSession(stageSkillKey(instance, stage.id), sessionID);
 }
 
 /**

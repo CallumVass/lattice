@@ -8,6 +8,13 @@ export interface SessionDispatchResult {
   sessionId?: string;
 }
 
+export interface SubtaskDispatchInput {
+  agent: string;
+  prompt: string;
+  description: string;
+  model?: ModelOverride;
+}
+
 /**
  * Parse a `"provider/model-id"` config string into the structured form opencode
  * expects. Splits on the first `/` so model IDs containing dots or hyphens
@@ -45,6 +52,8 @@ export interface SessionProvider {
     description: string,
     model?: ModelOverride,
   ): Promise<SessionDispatchResult>;
+  /** Send multiple subtasks to a session in one prompt turn. */
+  injectSubtasks(sessionId: string, subtasks: SubtaskDispatchInput[]): Promise<SessionDispatchResult[]>;
   /**
    * Post a user-visible status message into a session WITHOUT triggering an
    * LLM response. Use for progress surfaces (e.g. "running verification...")

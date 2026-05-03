@@ -1,5 +1,5 @@
 import type { createOpencodeClient } from "@opencode-ai/sdk";
-import type { ModelOverride, SessionDispatchResult, SessionProvider } from "./session.js";
+import type { ModelOverride, SessionDispatchResult, SessionProvider, SubtaskDispatchInput } from "./session.js";
 
 type Client = ReturnType<typeof createOpencodeClient>;
 
@@ -58,6 +58,79 @@ async function waitForSubtaskSessionId(
   return undefined;
 }
 
+async function waitForSubtaskSessionIds(
+  client: Client,
+  parentSessionId: string,
+  directory: string,
+  descriptions: string[],
+  beforeIds: Set<string>,
+  startedAt: number,
+): Promise<Array<string | undefined>> {
+  const deadline = Date.now() + subtaskSessionWaitMs;
+  const assigned = new Map<number, string>();
+
+  while (Date.now() < deadline) {
+    const candidates = (await childSessions(client, parentSessionId, directory))
+      .filter((session) => !beforeIds.has(session.id))
+      .filter((session) => (session.time?.created ?? 0) >= startedAt - 1_000)
+      .sort((a, b) => (a.time?.created ?? 0) - (b.time?.created ?? 0));
+
+    const used = new Set(assigned.values());
+    for (let index = 0; index < descriptions.length; index++) {
+      if (assigned.has(index)) continue;
+      const match = candidates.find(
+        (session) => !used.has(session.id) && session.title?.startsWith(descriptions[index] ?? ""),
+      );
+      if (!match) continue;
+      assigned.set(index, match.id);
+      used.add(match.id);
+    }
+
+    if (assigned.size === descriptions.length) break;
+    await sleep(subtaskSessionPollMs);
+  }
+
+  return descriptions.map((_, index) => assigned.get(index));
+}
+
+async function injectSubtaskBatch(
+  client: Client,
+  directory: string,
+  sessionId: string,
+  subtasks: SubtaskDispatchInput[],
+): Promise<SessionDispatchResult[]> {
+  if (subtasks.length === 0) return [];
+
+  const startedAt = Date.now();
+  const beforeIds = new Set((await childSessions(client, sessionId, directory)).map((session) => session.id));
+
+  const results = await Promise.all(
+    subtasks.map(({ agent, prompt, description, model }) =>
+      client.session.promptAsync({
+        path: { id: sessionId },
+        query: { directory },
+        body: {
+          parts: [{ type: "subtask" as const, prompt, description, agent, ...(model && { model }) }],
+        },
+      }),
+    ),
+  );
+  const failed = results.find((result) => result.error);
+  if (failed?.error) {
+    throw new Error(`Failed to inject subtasks: ${errorMessage(failed.error)}`);
+  }
+
+  const ids = await waitForSubtaskSessionIds(
+    client,
+    sessionId,
+    directory,
+    subtasks.map((subtask) => subtask.description),
+    beforeIds,
+    startedAt,
+  );
+  return ids.map((childSessionId) => ({ sessionId: childSessionId }));
+}
+
 export function createOpencodeSessionProvider(client: Client, directory: string): SessionProvider {
   return {
     async injectPrompt(
@@ -107,6 +180,10 @@ export function createOpencodeSessionProvider(client: Client, directory: string)
       return {
         sessionId: await waitForSubtaskSessionId(client, sessionId, directory, description, beforeIds, startedAt),
       };
+    },
+
+    injectSubtasks(sessionId: string, subtasks: SubtaskDispatchInput[]): Promise<SessionDispatchResult[]> {
+      return injectSubtaskBatch(client, directory, sessionId, subtasks);
     },
 
     async notify(sessionId: string, message: string): Promise<void> {

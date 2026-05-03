@@ -91,6 +91,8 @@ When skill injection is enabled, Lattice merges skill settings in this order, wi
 
 Use agent-level skills for broad defaults and stage-level config for one-off overrides.
 
+Parallel group members use their normal stage ids for overrides. For example, `parallel("reviewers", { stages: [stage("security", ...)] })` is configured at `pipelines.<pipeline>.stages.security`, not at the group id.
+
 ## Notes
 
 - The config format is JSONC, so comments are allowed and invalid config is reported instead of silently ignored.

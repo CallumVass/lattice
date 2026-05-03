@@ -17,6 +17,8 @@ Pipelines can write any other files they need (e.g. plans, drafts) under `.latti
 
 When a pipeline uses dynamic stage expansion, the persisted instance also records `runtimeStages`. This is the expanded stage list for that run only, so retries and checkpoints continue against the generated stages instead of re-reading the original placeholder definition.
 
+When a pipeline uses `parallel(...)`, Lattice flattens the group into normal stage instances annotated with runtime `parallelGroup` metadata on `runtimeStages` or the flattened pipeline definition. Each member still has its own `StageInstance`, `sessionId`, signal file, and telemetry.
+
 ## Completion Methods
 
 - `idle`: stage completes when the stage's session goes idle.
@@ -48,6 +50,7 @@ Attribution rules:
 
 - Only authoritative assistant turns (`role === "assistant"` and `time.completed` set) are counted. Partial streaming frames are skipped.
 - Telemetry is attributed to the stage at `currentStageIndex` when its status is `running` and the event session matches the stage session. Messages arriving outside a running stage — e.g. during `paused` gates, from unrelated sessions, or after completion — are dropped.
+- For parallel groups, telemetry is attributed by child `sessionId`, so simultaneous reviewer subtasks accumulate separate costs and token counts.
 - If opencode includes an assistant-message `agent`, telemetry is only counted when it matches the running stage's agent.
 - If a stage has an agent model override, Lattice seeds `configuredModel` and `configuredProvider` from that override and keeps `model` and `provider` pinned to the configured values. Later message metadata is recorded separately as `observedModel` and `observedProvider`.
 - If observed message metadata differs from a configured model override, Lattice logs a warning so users can spot provider fallback or alias resolution while preserving both configured and observed values.
@@ -63,6 +66,8 @@ When a stage signals `fail` or `blocked`, the pipeline becomes `paused` and reco
 2. Otherwise, the failed/blocked stage itself retries.
 
 The target stage's `rewindsUsed` counter increments on each accepted rewind. If the target declares `maxRewinds: N`, `/lattice retry` refuses once the counter reaches the cap and leaves the pipeline paused with a message pointing at `/lattice accept` or `/lattice abort`. Unbounded by default — set a cap on stages where a reviewer/target non-convergence is a realistic failure mode. See [`custom-pipelines.md`](custom-pipelines.md#fail-rewinds).
+
+If a stage inside a parallel group fails or blocks and no upstream rewind target is configured, `/lattice retry` restarts the whole parallel group rather than only the one rejected member. This keeps the group outputs consistent for the downstream orchestrator.
 
 If the pipeline is at a `pauseAfter` checkpoint, approve it through the question gate or use `/lattice continue [response]` to unpause. The optional response is stored as `resumeContext`, included in the next stage prompt, then cleared when that stage starts.
 
