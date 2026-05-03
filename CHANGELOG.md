@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.5.0](https://github.com/CallumVass/lattice/compare/lattice-v3.4.3...lattice-v3.5.0) (2026-05-03)
+
+
+### Features
+
+* **runtime:** add parallel stage groups ([eb88454](https://github.com/CallumVass/lattice/commit/eb884543d5ddef27b263c09195a52c65df5e0381))
+
 ## [3.4.3](https://github.com/CallumVass/lattice/compare/lattice-v3.4.2...lattice-v3.4.3) (2026-05-02)
 
 
