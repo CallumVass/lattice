@@ -97,3 +97,5 @@ Parallel group members use their normal stage ids for overrides. For example, `p
 
 - The config format is JSONC, so comments are allowed and invalid config is reported instead of silently ignored.
 - Config merging is shallow by top-level section, with project values winning.
+- Config validation is strict. Unknown keys are rejected so typos do not silently change behavior; run `/lattice doctor` or check the load error if a config change makes pipelines disappear.
+- `skills` is replaced as a whole by project config when present. If global config defines `skills.paths` and project config defines `skills.disabled`, repeat any global skill settings you still want active.

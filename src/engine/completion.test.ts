@@ -67,4 +67,16 @@ describe("signal", () => {
     expect(result.complete).toBe(true);
     expect(result.verdict).toBeUndefined();
   });
+
+  it("treats malformed signal JSON as incomplete", async () => {
+    await writeFile(join(signalsDir, "test-stage.json"), "{");
+    const result = await checkCompletion("signal", ctx());
+    expect(result.complete).toBe(false);
+  });
+
+  it("treats unknown signal status as incomplete", async () => {
+    await writeFile(join(signalsDir, "test-stage.json"), JSON.stringify({ status: "ship-it" }));
+    const result = await checkCompletion("signal", ctx());
+    expect(result.complete).toBe(false);
+  });
 });

@@ -67,6 +67,7 @@ interface EventHandlerDeps extends StageRunnerDeps {
   sessions: SessionProvider;
   log: Logger;
   scheduleCurrentStage?: () => Promise<void>;
+  runExclusive?: <T>(work: () => Promise<T>) => Promise<T>;
 }
 
 function eventSessionId(event: unknown): string | undefined {
@@ -143,13 +144,17 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
 
       const instance = deps.state.activeInstance;
       if (!instance || instance.status !== "running") return;
+      const incomingSessionId = msg.properties?.sessionID ?? info.sessionID;
       const stageIndex = runningStageIndexForSession(
         instance,
         deps.state.parentSessionId,
-        msg.properties?.sessionID ?? info.sessionID,
+        incomingSessionId,
         info.agent,
       );
-      if (stageIndex === undefined) return;
+      if (stageIndex === undefined) {
+        if (isParentSession(instance, deps.state.parentSessionId, incomingSessionId)) await schedulePendingStage(deps);
+        return;
+      }
       const stage = instance.stages[stageIndex];
       if (!stage || stage.status !== "running") return;
       if (info.agent && info.agent !== stage.agent) return;
@@ -163,6 +168,7 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
       stage.telemetry = accumulateTelemetry(stage.telemetry, info);
       instance.updatedAt = new Date().toISOString();
       await saveInstance(deps.state.engineConfig.projectDir, instance);
+      await handleIdle(incomingSessionId, deps);
       return;
     }
 
@@ -174,15 +180,50 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
       }
       return;
     }
+    if (event.type === "command.executed") {
+      const run = idleQueue
+        .catch(() => {})
+        .then(async () =>
+          deps.runExclusive ? deps.runExclusive(() => schedulePendingStage(deps)) : schedulePendingStage(deps),
+        );
+      idleQueue = run.then(
+        () => {},
+        () => {},
+      );
+      await run;
+      return;
+    }
+
     if (event.type !== "session.idle") return;
 
-    const run = idleQueue.catch(() => {}).then(async () => handleIdle(eventSessionId(event), deps));
+    const run = idleQueue
+      .catch(() => {})
+      .then(async () =>
+        deps.runExclusive
+          ? deps.runExclusive(() => handleIdle(eventSessionId(event), deps))
+          : handleIdle(eventSessionId(event), deps),
+      );
     idleQueue = run.then(
       () => {},
       () => {},
     );
     await run;
   };
+}
+
+async function schedulePendingStage(deps: EventHandlerDeps): Promise<void> {
+  const instance = deps.state.activeInstance;
+  if (!instance || instance.status !== "running") return;
+  const parentSessionId = deps.state.parentSessionId ?? instance.parentSessionId;
+  if (!parentSessionId) return;
+
+  if (deps.scheduleCurrentStage) {
+    await deps.scheduleCurrentStage();
+    return;
+  }
+
+  const staticFlat = await deps.getFlattened(instance.pipelineName);
+  await executeStageActions(instance, parentSessionId, staticFlat, deps);
 }
 
 async function handleIdle(sessionId: string | undefined, deps: EventHandlerDeps): Promise<void> {

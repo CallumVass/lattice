@@ -3,6 +3,7 @@
 ## Framework Commands
 
 - `/lattice status`: show current pipeline status
+- `/lattice doctor`: validate pipeline discovery, load diagnostics, dynamic manifest paths, and pinned skills
 - `/lattice run <pipeline> <goal>`: start a pipeline by name
 - `/lattice continue [response]`: resume a pipeline paused at a `pauseAfter` checkpoint
 - `/lattice retry [response]`: retry a failed or blocked stage — rewinds to a configured rewind target when one exists
@@ -24,6 +25,12 @@ The goal can be free text, an issue number, or a URL — it's passed straight th
 4. Each active stage signals its outcome via the `lattice_signal` tool (`complete`, `pass`, `fail`, `blocked`).
 5. Lattice advances to the next stage, or pauses if `pauseAfter: true` or the signal is `fail`/`blocked`. A parallel group advances only after every member completes. After isolated subtasks complete, the following non-group stage is dispatched from the parent session's next idle event rather than from a child session.
 6. When the last stage signals `complete`, the pipeline completes and the active instance is cleared.
+
+## Status And Doctor
+
+`/lattice status` is the quick runtime view. When idle, it lists loaded pipelines and recent load diagnostics. During a run, it shows the active state file, current and next stages, pause actions, session IDs, and accumulated telemetry totals.
+
+`/lattice doctor` is the authoring preflight. Use it when a pipeline command is missing or before relying on a new pipeline. It reports skipped pipeline files, flattening errors, unsafe dynamic manifest paths, and pinned skills that were not discovered.
 
 ## Stage Context
 

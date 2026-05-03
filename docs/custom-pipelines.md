@@ -90,6 +90,8 @@ export default {
 
 Tradeoff: no autocomplete, no compile-time check that `signals` matches the completion method, and no typed refactoring. The runtime schema still rejects invalid shapes.
 
+Pipeline, stage, parallel, and config schemas are strict. Unknown keys are treated as authoring errors instead of being silently ignored, so typo-like fields such as `skillz` or `disable` will keep the file from loading and appear in `/lattice doctor`.
+
 ## Stage Fields
 
 - `id`: unique stage id inside the pipeline

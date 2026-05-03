@@ -81,6 +81,10 @@ async function fireIdle(handler: ReturnType<typeof createEventHandler>, sessionI
   await handler({ event: { type: "session.idle", properties: { sessionID } } } as never);
 }
 
+async function fireCommandExecuted(handler: ReturnType<typeof createEventHandler>) {
+  await handler({ event: { type: "command.executed", properties: {} } } as never);
+}
+
 interface AssistantInfoOverrides {
   sessionID?: string;
   role?: string;
@@ -143,6 +147,8 @@ function makeState(latticeConfig: LatticeConfig, registry: PipelineRegistry): Pl
     activeInstance: undefined,
     parentSessionId: "session-1",
     engineConfig,
+    pipelineDirs: [join(projectDir, ".opencode", "lattice-pipelines")],
+    diagnostics: [],
   };
 }
 
@@ -218,6 +224,60 @@ describe("session.idle pipeline progression", () => {
     await fireIdle(handler, "session-1");
 
     expect(scheduleCurrentStage).toHaveBeenCalledTimes(1);
+  });
+
+  it("schedules a pending stage after a command completes", async () => {
+    const registry = registryOf(twoStage);
+    const state = makeState({}, registry);
+    state.parentSessionId = "parent";
+    const scheduleCurrentStage = vi.fn(async () => {});
+    const handler = buildHandler(state, registry, { scheduleCurrentStage });
+
+    const flat = flattenPipeline(twoStage, registry);
+    const { instance } = await startPipeline(flat, "ship it", state.engineConfig, "parent");
+    state.activeInstance = instance;
+
+    await fireCommandExecuted(handler);
+
+    expect(scheduleCurrentStage).toHaveBeenCalledTimes(1);
+  });
+
+  it("schedules a pending stage after the parent assistant turn completes", async () => {
+    const registry = registryOf(twoStage);
+    const state = makeState({}, registry);
+    state.parentSessionId = "parent";
+    const scheduleCurrentStage = vi.fn(async () => {});
+    const handler = buildHandler(state, registry, { scheduleCurrentStage });
+
+    const flat = flattenPipeline(twoStage, registry);
+    const { instance } = await startPipeline(flat, "ship it", state.engineConfig, "parent");
+    state.activeInstance = instance;
+
+    await fireAssistantMessage(handler, { sessionID: "parent", agent: "build" });
+
+    expect(scheduleCurrentStage).toHaveBeenCalledTimes(1);
+  });
+
+  it("completes an idle stage when its assistant turn completes", async () => {
+    const p = pipeline("idle-flow", {
+      stages: [stage("inspect", { agent: "build", completion: "idle", context: "shared" })],
+    });
+    const registry = registryOf(p);
+    const state = makeState({}, registry);
+    state.parentSessionId = "parent";
+    const handler = buildHandler(state, registry);
+
+    const flat = flattenPipeline(p, registry);
+    const { instance } = await startPipeline(flat, "ship it", state.engineConfig, "parent");
+    const inspect = instance.stages[0];
+    if (!inspect) throw new Error("Expected inspect stage");
+    inspect.status = "running";
+    inspect.sessionId = "parent";
+    state.activeInstance = instance;
+
+    await fireAssistantMessage(handler, { sessionID: "parent", agent: "build" });
+
+    expect(state.activeInstance).toBeUndefined();
   });
 
   it("injects a pause prompt when a stage fails", async () => {

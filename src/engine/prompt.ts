@@ -37,7 +37,7 @@ export function composePrompt(ctx: PromptContext): string {
   parts.push(`## Current Stage: ${ctx.currentStage.id}\nAgent: ${ctx.currentStage.agent}`);
 
   if (ctx.currentStage.prompt) {
-    const rendered = ctx.currentStage.prompt.replace("{{goal}}", ctx.goal);
+    const rendered = ctx.currentStage.prompt.replaceAll("{{goal}}", ctx.goal);
     parts.push(rendered);
   }
 

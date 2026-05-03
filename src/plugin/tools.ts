@@ -2,31 +2,72 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ToolContext, ToolDefinition } from "@opencode-ai/plugin/tool";
 import { tool } from "@opencode-ai/plugin/tool";
-import { cleanSignals, effectivePipeline, saveInstance, startPipeline } from "../engine/index.js";
-import type { PipelineInstance, PipelinePause, SignalVerdict, StageInstance } from "../schema/index.js";
-import type { PluginState } from "./state.js";
+import {
+  cleanSignals,
+  effectivePipeline,
+  type FlattenedPipeline,
+  saveInstance,
+  startPipeline,
+} from "../engine/index.js";
+import type {
+  PipelineInstance,
+  PipelinePause,
+  SignalVerdict,
+  StageDefinition,
+  StageInstance,
+} from "../schema/index.js";
+import type { DiscoveredSkill } from "../skills/index.js";
+import type { PluginDiagnostic, PluginState } from "./state.js";
 
 interface ToolDeps {
   state: PluginState;
-  getFlattened: (name: string) => Promise<ReturnType<typeof import("../engine/flattener.js").flattenPipeline>>;
+  getFlattened: (name: string) => Promise<FlattenedPipeline>;
   selectSkillsForStage: (sessionId: string, stageId: string, agent: string, goal: string) => Promise<void>;
   scheduleCurrentStage?: () => Promise<void>;
+  discoveredSkills?: DiscoveredSkill[];
+  runExclusive?: <T>(work: () => Promise<T>) => Promise<T>;
   log: Logger;
 }
 
 type Logger = { info: (msg: string) => void; warn: (msg: string) => void; error: (msg: string) => void };
 
-const CONTROL_ACTIONS = ["status", "run", "continue", "retry", "accept", "abort", "reset"] as const;
+const CONTROL_ACTIONS = ["status", "doctor", "run", "continue", "retry", "accept", "abort", "reset"] as const;
 
-function formatStatus(instance: PipelineInstance | undefined): string {
+function formatStatus(state: PluginState): string {
   const lines: string[] = [];
+  const instance = state.activeInstance;
 
-  if (!instance) return "No active pipeline.";
+  if (!instance) {
+    lines.push("No active pipeline.", `Available pipelines: ${formatList([...state.registry.keys()])}`);
+    if (state.diagnostics.length > 0) {
+      lines.push(
+        "Diagnostics:",
+        ...state.diagnostics.slice(0, 5).map((diagnostic) => `- ${formatDiagnostic(diagnostic)}`),
+      );
+      if (state.diagnostics.length > 5) lines.push(`- ...${state.diagnostics.length - 5} more`);
+      lines.push("Run `/lattice doctor` for details.");
+    }
+    return lines.join("\n");
+  }
 
   lines.push(`Pipeline: ${instance.pipelineName} (${instance.status})`, `Goal: ${instance.goal}`);
+  lines.push(`State: .lattice/state/${instance.id}.json`);
+  const current = instance.stages[instance.currentStageIndex];
+  if (current) lines.push(`Current: ${current.id} (${current.status})`);
+  const next = nextPendingStage(instance);
+  if (next && next !== current) lines.push(`Next: ${next.id} (${next.agent})`);
+  const sessionId = state.parentSessionId ?? instance.parentSessionId;
+  if (sessionId) lines.push(`Parent session: ${sessionId}`);
   if (instance.pause) {
     lines.push(
       `Pause: ${instance.pause.kind} at ${instance.pause.stageId}${instance.pause.reason ? ` - ${instance.pause.reason}` : ""}`,
+    );
+    lines.push(`Actions: ${pauseActionHint(instance.pause)}`);
+  }
+  const telemetry = totalTelemetry(instance);
+  if (telemetry.messageCount > 0 || telemetry.costUSD > 0) {
+    lines.push(
+      `Telemetry: ${telemetry.messageCount} messages, ${telemetry.tokensIn}/${telemetry.tokensOut} in/out tokens, $${telemetry.costUSD.toFixed(6)}`,
     );
   }
   for (const s of instance.stages) {
@@ -42,10 +83,53 @@ function formatStatus(instance: PipelineInstance | undefined): string {
               : s.status === "rejected"
                 ? "✗"
                 : " ";
-    lines.push(`${marker} ${s.id} (${s.agent}): ${s.status}${s.summary ? ` - ${s.summary}` : ""}`);
+    const session = s.sessionId ? ` [${s.sessionId}]` : "";
+    lines.push(`${marker} ${s.id} (${s.agent}): ${s.status}${session}${s.summary ? ` - ${s.summary}` : ""}`);
   }
 
   return lines.join("\n");
+}
+
+function formatList(values: string[]): string {
+  return values.length > 0 ? values.sort().join(", ") : "(none)";
+}
+
+function formatDiagnostic(diagnostic: PluginDiagnostic): string {
+  const location = [diagnostic.file, diagnostic.pipeline, diagnostic.stage].filter(Boolean).join(" ");
+  return `[${diagnostic.source}] ${location ? `${location}: ` : ""}${diagnostic.message}`;
+}
+
+function nextPendingStage(instance: PipelineInstance): StageInstance | undefined {
+  return instance.stages.slice(instance.currentStageIndex).find((stage) => stage.status === "pending");
+}
+
+function pauseActionHint(pause: PipelinePause): string {
+  if (pause.kind === "checkpoint") return "continue or abort";
+  if (pause.kind === "stuck") return "retry or abort";
+  return "retry, accept, or abort";
+}
+
+function totalTelemetry(instance: PipelineInstance): NonNullable<StageInstance["telemetry"]> {
+  return instance.stages.reduce(
+    (total, stage) => ({
+      tokensIn: total.tokensIn + (stage.telemetry?.tokensIn ?? 0),
+      tokensOut: total.tokensOut + (stage.telemetry?.tokensOut ?? 0),
+      tokensReasoning: total.tokensReasoning + (stage.telemetry?.tokensReasoning ?? 0),
+      tokensCacheRead: total.tokensCacheRead + (stage.telemetry?.tokensCacheRead ?? 0),
+      tokensCacheWrite: total.tokensCacheWrite + (stage.telemetry?.tokensCacheWrite ?? 0),
+      costUSD: total.costUSD + (stage.telemetry?.costUSD ?? 0),
+      messageCount: total.messageCount + (stage.telemetry?.messageCount ?? 0),
+    }),
+    {
+      tokensIn: 0,
+      tokensOut: 0,
+      tokensReasoning: 0,
+      tokensCacheRead: 0,
+      tokensCacheWrite: 0,
+      costUSD: 0,
+      messageCount: 0,
+    },
+  );
 }
 
 function clearStageForRetry(stage: StageInstance | undefined): void {
@@ -134,6 +218,105 @@ function missingControlSessionMessage(): string {
   return "No control session is available for this pipeline. Run the command again from an OpenCode chat session.";
 }
 
+function unknownPipelineMessage(state: PluginState, pipeline: string): string {
+  const lines = [`Unknown pipeline "${pipeline}". Available: ${formatList([...state.registry.keys()])}`];
+  if (state.registry.size === 0) {
+    lines.push("Pipeline search paths:", ...state.pipelineDirs.map((dir) => `- ${dir}`));
+  }
+  const loadDiagnostics = state.diagnostics.filter((diagnostic) => diagnostic.source === "pipeline");
+  if (loadDiagnostics.length > 0) {
+    lines.push(
+      "Pipeline load diagnostics:",
+      ...loadDiagnostics.map((diagnostic) => `- ${formatDiagnostic(diagnostic)}`),
+    );
+  }
+  return lines.join("\n");
+}
+
+function unsafeManifestPath(stage: StageDefinition): string | undefined {
+  const from = stage.expand?.from;
+  if (!from) return undefined;
+  if (from.startsWith("/") || from.split(/[\\/]/).includes("..")) return from;
+  return undefined;
+}
+
+function pinnedSkillRefs(pipeline: FlattenedPipeline, deps: ToolDeps): Array<{ name: string; source: string }> {
+  const refs: Array<{ name: string; source: string }> = [];
+  const config = deps.state.engineConfig.latticeConfig;
+  for (const stageDef of pipeline.stages) {
+    for (const name of stageDef.skills?.pinned ?? []) {
+      refs.push({ name, source: `pipeline ${pipeline.name} stage ${stageDef.id}` });
+    }
+
+    for (const name of config.agents?.[stageDef.agent]?.skills?.pinned ?? []) {
+      refs.push({ name, source: `agent ${stageDef.agent} used by ${pipeline.name}/${stageDef.id}` });
+    }
+
+    for (const name of config.pipelines?.[pipeline.name]?.stages?.[stageDef.id]?.skills?.pinned ?? []) {
+      refs.push({ name, source: `config ${pipeline.name}/${stageDef.id}` });
+    }
+  }
+  return refs;
+}
+
+async function doctorPipeline(deps: ToolDeps): Promise<string> {
+  const { state } = deps;
+  const lines = ["Lattice doctor", `Project: ${state.engineConfig.projectDir}`];
+  const issues: string[] = [];
+
+  lines.push("Pipeline search paths:", ...state.pipelineDirs.map((dir) => `- ${dir}`));
+  lines.push(`Loaded pipelines: ${formatList([...state.registry.keys()])}`);
+
+  for (const diagnostic of state.diagnostics) issues.push(formatDiagnostic(diagnostic));
+  if (state.registry.size === 0) issues.push("No pipelines loaded. Add files under one of the pipeline search paths.");
+
+  const skillNames = new Set((deps.discoveredSkills ?? []).map((skill) => skill.name));
+  const seenIssues = new Set(issues);
+
+  for (const name of state.registry.keys()) {
+    let flat: FlattenedPipeline;
+    try {
+      flat = await deps.getFlattened(name);
+    } catch (error) {
+      const issue = `Pipeline "${name}" failed to flatten: ${error instanceof Error ? error.message : String(error)}`;
+      if (!seenIssues.has(issue)) {
+        seenIssues.add(issue);
+        issues.push(issue);
+      }
+      continue;
+    }
+
+    for (const stageDef of flat.stages) {
+      const unsafePath = unsafeManifestPath(stageDef);
+      if (unsafePath) {
+        const issue = `Pipeline "${name}" stage "${stageDef.id}" has unsafe dynamic manifest path: ${unsafePath}`;
+        if (!seenIssues.has(issue)) {
+          seenIssues.add(issue);
+          issues.push(issue);
+        }
+      }
+    }
+
+    for (const ref of pinnedSkillRefs(flat, deps)) {
+      if (skillNames.has(ref.name)) continue;
+      const issue = `Pinned skill "${ref.name}" was not discovered (${ref.source}).`;
+      if (!seenIssues.has(issue)) {
+        seenIssues.add(issue);
+        issues.push(issue);
+      }
+    }
+  }
+
+  if (issues.length === 0) {
+    lines.push("No issues found.");
+  } else {
+    lines.push("Issues:", ...issues.map((issue) => `- ${issue}`));
+  }
+
+  lines.push(`Discovered skills: ${deps.discoveredSkills?.length ?? 0}`);
+  return lines.join("\n");
+}
+
 async function runPipeline(
   deps: ToolDeps,
   args: { pipeline?: string; goal?: string },
@@ -146,9 +329,7 @@ async function runPipeline(
   if (!pipeline) return "Missing pipeline name. Use `/lattice run <pipeline> <goal>`.";
   if (!goal) return "Missing goal. Use `/lattice run <pipeline> <goal>`.";
 
-  if (!state.registry.has(pipeline)) {
-    return `Unknown pipeline "${pipeline}". Available: ${[...state.registry.keys()].join(", ")}`;
-  }
+  if (!state.registry.has(pipeline)) return unknownPipelineMessage(state, pipeline);
 
   if (state.activeInstance && (state.activeInstance.status === "running" || state.activeInstance.status === "paused")) {
     return `Pipeline "${state.activeInstance.pipelineName}" is ${state.activeInstance.status}. Use \`/lattice status\` or \`/lattice abort\` first.`;
@@ -381,7 +562,7 @@ async function resetPipeline(deps: ToolDeps): Promise<string> {
 export function createLatticeControlTool(deps: ToolDeps): ToolDefinition {
   return tool({
     description:
-      "Control lattice pipelines. Use this single tool for status, run, continue, retry, accept, abort, and reset actions. " +
+      "Control lattice pipelines. Use this single tool for status, doctor, run, continue, retry, accept, abort, and reset actions. " +
       "Pipeline stages advance automatically after run/continue/retry/accept when appropriate.",
     args: {
       action: tool.schema.enum(CONTROL_ACTIONS).describe("Control action to perform."),
@@ -391,15 +572,20 @@ export function createLatticeControlTool(deps: ToolDeps): ToolDefinition {
       reason: tool.schema.string().optional().describe("Reason for accepting a failed/blocked stage."),
     },
     async execute(args, context) {
-      if (args.action === "status") return formatStatus(deps.state.activeInstance);
-      if (args.action === "run") return runPipeline(deps, args, context);
+      if (args.action === "status") return formatStatus(deps.state);
+      if (args.action === "doctor") return doctorPipeline(deps);
+      const executeAction = async () => {
+        if (args.action === "run") return runPipeline(deps, args, context);
 
-      if (args.action === "continue") return continuePipeline(deps, args.response, context);
-      if (args.action === "retry") return retryPipeline(deps, args.response, context);
-      if (args.action === "accept") return acceptPause(deps, args.reason, context);
-      if (args.action === "abort") return abortPipeline(deps);
-      if (args.action === "reset") return resetPipeline(deps);
-      return `Unsupported lattice action: ${args.action}`;
+        if (args.action === "continue") return continuePipeline(deps, args.response, context);
+        if (args.action === "retry") return retryPipeline(deps, args.response, context);
+        if (args.action === "accept") return acceptPause(deps, args.reason, context);
+        if (args.action === "abort") return abortPipeline(deps);
+        if (args.action === "reset") return resetPipeline(deps);
+        return `Unsupported lattice action: ${args.action}`;
+      };
+
+      return deps.runExclusive ? deps.runExclusive(executeAction) : executeAction();
     },
   });
 }
@@ -414,52 +600,58 @@ export function createLatticeSignalTool(deps: ToolDeps): ToolDefinition {
       reason: tool.schema.string().optional().describe("Brief explanation of the outcome"),
     },
     async execute(args, context) {
-      const instance = deps.state.activeInstance;
-      if (!instance) return "No active pipeline.";
-      if (instance.status !== "running") return `Pipeline is ${instance.status}; no running stage can be signalled.`;
+      const executeSignal = async () => {
+        const instance = deps.state.activeInstance;
+        if (!instance) return "No active pipeline.";
+        if (instance.status !== "running") return `Pipeline is ${instance.status}; no running stage can be signalled.`;
 
-      const stageIndex = activeStageIndexForSignal(instance, context);
-      if (stageIndex === undefined) {
-        const active = instance.stages.filter((stage) => stage.status === "running" || stage.status === "dispatching");
-        const only = active.length === 1 ? active[0] : undefined;
-        if (only?.sessionId && context.sessionID && context.sessionID !== only.sessionId) {
-          return `Signal refused: current stage "${only.id}" is running in session "${only.sessionId}", not "${context.sessionID}".`;
+        const stageIndex = activeStageIndexForSignal(instance, context);
+        if (stageIndex === undefined) {
+          const active = instance.stages.filter(
+            (stage) => stage.status === "running" || stage.status === "dispatching",
+          );
+          const only = active.length === 1 ? active[0] : undefined;
+          if (only?.sessionId && context.sessionID && context.sessionID !== only.sessionId) {
+            return `Signal refused: current stage "${only.id}" is running in session "${only.sessionId}", not "${context.sessionID}".`;
+          }
+          if (only && context.agent && context.agent !== only.agent) {
+            return `Signal refused: current stage "${only.id}" uses agent "${only.agent}", not "${context.agent}".`;
+          }
+          return "No running stage matches this signal context.";
         }
-        if (only && context.agent && context.agent !== only.agent) {
-          return `Signal refused: current stage "${only.id}" uses agent "${only.agent}", not "${context.agent}".`;
+        const currentStage = instance.stages[stageIndex];
+        if (!currentStage || (currentStage.status !== "running" && currentStage.status !== "dispatching")) {
+          return "No running stage to signal.";
         }
-        return "No running stage matches this signal context.";
-      }
-      const currentStage = instance.stages[stageIndex];
-      if (!currentStage || (currentStage.status !== "running" && currentStage.status !== "dispatching")) {
-        return "No running stage to signal.";
-      }
 
-      const flat = effectivePipeline(instance, await deps.getFlattened(instance.pipelineName));
-      const stageDef = flat.stages[stageIndex];
-      if (!stageDef || stageDef.completion !== "signal") {
-        return `Signal refused: current stage "${currentStage.id}" does not use signal completion.`;
-      }
-      if (!stageDef.signals?.includes(args.status as SignalVerdict)) {
-        return `Signal refused: status "${args.status}" is not declared for stage "${currentStage.id}". Declared signals: ${stageDef.signals?.join(", ") ?? "(none)"}.`;
-      }
+        const flat = effectivePipeline(instance, await deps.getFlattened(instance.pipelineName));
+        const stageDef = flat.stages[stageIndex];
+        if (!stageDef || stageDef.completion !== "signal") {
+          return `Signal refused: current stage "${currentStage.id}" does not use signal completion.`;
+        }
+        if (!stageDef.signals?.includes(args.status as SignalVerdict)) {
+          return `Signal refused: status "${args.status}" is not declared for stage "${currentStage.id}". Declared signals: ${stageDef.signals?.join(", ") ?? "(none)"}.`;
+        }
 
-      if (currentStage.status === "dispatching") {
-        currentStage.status = "running";
-        currentStage.startedAt = currentStage.startedAt ?? new Date().toISOString();
-        if (context.sessionID) currentStage.sessionId = context.sessionID;
-        instance.updatedAt = new Date().toISOString();
-        await saveInstance(deps.state.engineConfig.projectDir, instance);
-      }
+        if (currentStage.status === "dispatching") {
+          currentStage.status = "running";
+          currentStage.startedAt = currentStage.startedAt ?? new Date().toISOString();
+          if (context.sessionID) currentStage.sessionId = context.sessionID;
+          instance.updatedAt = new Date().toISOString();
+          await saveInstance(deps.state.engineConfig.projectDir, instance);
+        }
 
-      const signalsDir = join(deps.state.engineConfig.projectDir, ".lattice", "signals", instance.id);
-      await mkdir(signalsDir, { recursive: true });
-      await writeFile(
-        join(signalsDir, `${currentStage.id}.json`),
-        JSON.stringify({ status: args.status, reason: args.reason }),
-      );
+        const signalsDir = join(deps.state.engineConfig.projectDir, ".lattice", "signals", instance.id);
+        await mkdir(signalsDir, { recursive: true });
+        await writeFile(
+          join(signalsDir, `${currentStage.id}.json`),
+          JSON.stringify({ status: args.status, reason: args.reason }),
+        );
 
-      return `Signal recorded: ${args.status}${args.reason ? ` - ${args.reason}` : ""}`;
+        return `Signal recorded: ${args.status}${args.reason ? ` - ${args.reason}` : ""}`;
+      };
+
+      return deps.runExclusive ? deps.runExclusive(executeSignal) : executeSignal();
     },
   });
 }

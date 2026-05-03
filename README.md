@@ -59,6 +59,7 @@ For a complete starter, copy from [`examples/quick-fix`](examples/quick-fix).
 Lattice exposes one framework command, independent of your pipelines:
 
 - `/lattice status` — show current pipeline state
+- `/lattice doctor` — validate loaded pipelines, load diagnostics, dynamic manifest paths, and pinned skills
 - `/lattice run <pipeline> <goal>` — start a pipeline by name
 - `/lattice continue [response]` — resume a pipeline paused at a `pauseAfter` checkpoint
 - `/lattice retry [response]` — retry a failed or blocked stage, rewinding to the nearest `isRewindTarget` when configured
@@ -82,6 +83,7 @@ Lattice exposes one framework command, independent of your pipelines:
 - `docs/configuration.md`: overriding agents, stages, skill paths, and model selection
 - `docs/skills.md`: skill discovery and selection
 - `docs/state-and-completion.md`: `.lattice/` files, completion methods, retry behavior
+- `docs/troubleshooting.md`: pipeline loading, validation, missing commands, and recovery
 - `examples/quick-fix`: starter pipeline with agents and a skill
 
 ## Development
