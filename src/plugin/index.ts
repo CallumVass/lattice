@@ -8,7 +8,7 @@ import { createOpencodeSessionProvider, findActiveInstance, flattenPipeline, loa
 import { createOpencodeScoringProvider, scanSkills } from "../skills/index.js";
 import { createEventHandler } from "./events.js";
 import { createLogger } from "./logger.js";
-import { executeStageAction, selectSkillsForStage } from "./stage-runner.js";
+import { executeStageActions, selectSkillsForStage } from "./stage-runner.js";
 import type { PluginState } from "./state.js";
 import { AgentTracker, bindActiveStageSkillsToSession, buildSystemTransform, SkillStore } from "./system-transform.js";
 import { createLatticeControlTool, createLatticeSignalTool } from "./tools.js";
@@ -128,10 +128,8 @@ const server: Plugin = async ({ client, directory }) => {
         const instance = state.activeInstance;
         const parentSessionId = state.parentSessionId ?? instance?.parentSessionId;
         if (!instance || instance.status !== "running" || !parentSessionId) return;
-        const currentStage = instance.stages[instance.currentStageIndex];
-        if (!currentStage || currentStage.status !== "pending") return;
         const flat = await getFlattened(instance.pipelineName);
-        await executeStageAction(instance, parentSessionId, flat, stageRunnerDeps);
+        await executeStageActions(instance, parentSessionId, flat, stageRunnerDeps);
         state.parentSessionId = instance.parentSessionId ?? parentSessionId;
       });
     scheduleQueue = run.then(

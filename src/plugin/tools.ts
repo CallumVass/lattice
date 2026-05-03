@@ -68,6 +68,42 @@ function nextRunnableStageIndex(instance: PipelineInstance, start: number): numb
   return index;
 }
 
+function parallelGroupRange(
+  flat: Awaited<ReturnType<ToolDeps["getFlattened"]>>,
+  stageIndex: number,
+): { start: number; end: number } {
+  const group = flat.stages[stageIndex]?.parallelGroup;
+  if (!group) return { start: stageIndex, end: stageIndex + 1 };
+
+  let start = stageIndex;
+  while (start > 0 && flat.stages[start - 1]?.parallelGroup?.id === group.id) start--;
+
+  let end = stageIndex + 1;
+  while (end < flat.stages.length && flat.stages[end]?.parallelGroup?.id === group.id) end++;
+
+  return { start, end };
+}
+
+function activeStageIndexForSignal(instance: PipelineInstance, context: ToolContext): number | undefined {
+  const active = instance.stages
+    .map((stage, index) => ({ stage, index }))
+    .filter(({ stage }) => stage.status === "running" || stage.status === "dispatching")
+    .filter(({ stage }) => !context.agent || stage.agent === context.agent);
+
+  const exact = active.find(({ stage }) => !!context.sessionID && stage.sessionId === context.sessionID);
+  if (exact) return exact.index;
+
+  const shared = active.find(
+    ({ stage }) =>
+      !!context.sessionID &&
+      context.sessionID === instance.parentSessionId &&
+      (!stage.sessionId || stage.sessionId === instance.parentSessionId),
+  );
+  if (shared) return shared.index;
+
+  return active.length === 1 ? active[0]?.index : undefined;
+}
+
 function pausedStageIndex(instance: PipelineInstance): number | undefined {
   const pausedStageId = instance.pause?.stageId;
   if (!pausedStageId) return undefined;
@@ -190,6 +226,10 @@ async function retryPipeline(deps: ToolDeps, response: string | undefined, conte
     }
   }
 
+  if (retryIndex === failedIndex && flat.stages[failedIndex]?.parallelGroup) {
+    retryIndex = parallelGroupRange(flat, failedIndex).start;
+  }
+
   const targetDef = flat.stages[retryIndex];
   const targetInst = instance.stages[retryIndex];
   const cap = targetDef?.maxRewinds;
@@ -226,7 +266,7 @@ async function retryPipeline(deps: ToolDeps, response: string | undefined, conte
 }
 
 async function acceptPause(deps: ToolDeps, reason: string | undefined, context: ToolContext): Promise<string> {
-  const { state, log } = deps;
+  const { state, log, getFlattened } = deps;
   const instance = state.activeInstance;
   if (!instance || instance.status !== "paused") return "No paused pipeline to accept.";
   if (!instance.pause) return missingPauseMetadataMessage();
@@ -247,7 +287,19 @@ async function acceptPause(deps: ToolDeps, reason: string | undefined, context: 
   accepted.summary = [accepted.summary ?? "", "", `[accepted by user${reason ? `: ${reason}` : ""}]`].join("\n").trim();
   accepted.completedAt = new Date().toISOString();
 
-  const advanceIndex = nextRunnableStageIndex(instance, acceptedIndex + 1);
+  const flat = effectivePipeline(instance, await getFlattened(instance.pipelineName));
+  const groupRange = parallelGroupRange(flat, acceptedIndex);
+  if (flat.stages[acceptedIndex]?.parallelGroup) {
+    for (let index = groupRange.start; index < groupRange.end; index++) {
+      const stage = instance.stages[index];
+      if (!stage || index === acceptedIndex || stage.status === "completed" || stage.status === "skipped") continue;
+      stage.status = "skipped";
+      stage.completedAt = new Date().toISOString();
+      stage.summary = `Skipped after user accepted "${accepted.id}".`;
+    }
+  }
+
+  const advanceIndex = nextRunnableStageIndex(instance, groupRange.end);
   instance.currentStageIndex = advanceIndex;
   instance.pause = undefined;
   instance.updatedAt = new Date().toISOString();
@@ -278,11 +330,11 @@ async function abortPipeline(deps: ToolDeps): Promise<string> {
   instance.status = "failed";
   instance.pause = undefined;
   instance.updatedAt = new Date().toISOString();
-  const running = instance.stages.find((s) => s.status === "running" || s.status === "dispatching");
-  if (running) {
-    running.status = "failed";
-    running.completedAt = new Date().toISOString();
-    running.summary = "Aborted by user";
+  const running = instance.stages.filter((s) => s.status === "running" || s.status === "dispatching");
+  for (const stage of running) {
+    stage.status = "failed";
+    stage.completedAt = new Date().toISOString();
+    stage.summary = "Aborted by user";
   }
 
   await saveInstance(state.engineConfig.projectDir, instance);
@@ -293,15 +345,20 @@ async function abortPipeline(deps: ToolDeps): Promise<string> {
 }
 
 async function resetPipeline(deps: ToolDeps): Promise<string> {
-  const { state, log } = deps;
+  const { state, log, getFlattened } = deps;
   const instance = state.activeInstance;
   if (!instance) return "No active pipeline to reset.";
   if (instance.status !== "running") {
     return `Pipeline is ${instance.status}, not running. Use \`/lattice retry\`, \`/lattice continue\`, or \`/lattice abort\`.`;
   }
 
-  const stuck = instance.stages[instance.currentStageIndex];
-  clearStageForRetry(stuck);
+  const flat = effectivePipeline(instance, await getFlattened(instance.pipelineName));
+  const range = parallelGroupRange(flat, instance.currentStageIndex);
+  const resetStages = instance.stages.slice(range.start, range.end).filter((stage) => {
+    return stage.status === "running" || stage.status === "dispatching";
+  });
+  const stuck = resetStages[0] ?? instance.stages[instance.currentStageIndex];
+  for (const stage of resetStages.length > 0 ? resetStages : [stuck]) clearStageForRetry(stage);
 
   const pause: PipelinePause = {
     kind: "stuck",
@@ -316,8 +373,9 @@ async function resetPipeline(deps: ToolDeps): Promise<string> {
   await cleanSignals(state.engineConfig.projectDir, instance.id);
   await saveInstance(state.engineConfig.projectDir, instance);
 
-  log.info(`Pipeline "${instance.pipelineName}" reset - stage "${stuck?.id ?? "?"}" returned to pending`);
-  return `Pipeline "${instance.pipelineName}" reset. Stage "${stuck?.id ?? "?"}" is pending; use \`/lattice retry\` to restart it.`;
+  const label = resetStages.length > 1 ? `${resetStages.length} parallel stages` : `stage "${stuck?.id ?? "?"}"`;
+  log.info(`Pipeline "${instance.pipelineName}" reset - ${label} returned to pending`);
+  return `Pipeline "${instance.pipelineName}" reset. ${label} pending; use \`/lattice retry\` to restart it.`;
 }
 
 export function createLatticeControlTool(deps: ToolDeps): ToolDefinition {
@@ -360,22 +418,38 @@ export function createLatticeSignalTool(deps: ToolDeps): ToolDefinition {
       if (!instance) return "No active pipeline.";
       if (instance.status !== "running") return `Pipeline is ${instance.status}; no running stage can be signalled.`;
 
-      const currentStage = instance.stages[instance.currentStageIndex];
-      if (!currentStage || currentStage.status !== "running") return "No running stage to signal.";
-      if (currentStage.sessionId && context.sessionID && context.sessionID !== currentStage.sessionId) {
-        return `Signal refused: current stage "${currentStage.id}" is running in session "${currentStage.sessionId}", not "${context.sessionID}".`;
+      const stageIndex = activeStageIndexForSignal(instance, context);
+      if (stageIndex === undefined) {
+        const active = instance.stages.filter((stage) => stage.status === "running" || stage.status === "dispatching");
+        const only = active.length === 1 ? active[0] : undefined;
+        if (only?.sessionId && context.sessionID && context.sessionID !== only.sessionId) {
+          return `Signal refused: current stage "${only.id}" is running in session "${only.sessionId}", not "${context.sessionID}".`;
+        }
+        if (only && context.agent && context.agent !== only.agent) {
+          return `Signal refused: current stage "${only.id}" uses agent "${only.agent}", not "${context.agent}".`;
+        }
+        return "No running stage matches this signal context.";
       }
-      if (context?.agent && context.agent !== currentStage.agent) {
-        return `Signal refused: current stage "${currentStage.id}" uses agent "${currentStage.agent}", not "${context.agent}".`;
+      const currentStage = instance.stages[stageIndex];
+      if (!currentStage || (currentStage.status !== "running" && currentStage.status !== "dispatching")) {
+        return "No running stage to signal.";
       }
 
       const flat = effectivePipeline(instance, await deps.getFlattened(instance.pipelineName));
-      const stageDef = flat.stages[instance.currentStageIndex];
+      const stageDef = flat.stages[stageIndex];
       if (!stageDef || stageDef.completion !== "signal") {
         return `Signal refused: current stage "${currentStage.id}" does not use signal completion.`;
       }
       if (!stageDef.signals?.includes(args.status as SignalVerdict)) {
         return `Signal refused: status "${args.status}" is not declared for stage "${currentStage.id}". Declared signals: ${stageDef.signals?.join(", ") ?? "(none)"}.`;
+      }
+
+      if (currentStage.status === "dispatching") {
+        currentStage.status = "running";
+        currentStage.startedAt = currentStage.startedAt ?? new Date().toISOString();
+        if (context.sessionID) currentStage.sessionId = context.sessionID;
+        instance.updatedAt = new Date().toISOString();
+        await saveInstance(deps.state.engineConfig.projectDir, instance);
       }
 
       const signalsDir = join(deps.state.engineConfig.projectDir, ".lattice", "signals", instance.id);

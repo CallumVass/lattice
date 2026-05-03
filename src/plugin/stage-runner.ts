@@ -1,9 +1,13 @@
 import type { EngineConfig, FlattenedPipeline, SessionProvider } from "../engine/index.js";
 import {
   buildStageAction,
+  buildStageActions,
   expandCurrentStageIfNeeded,
+  expandRunnableStagesIfNeeded,
   markStageDispatching,
+  markStageDispatchingAt,
   markStageRunning,
+  markStageRunningAt,
   resolveModelOverride,
   saveInstance,
 } from "../engine/index.js";
@@ -11,7 +15,7 @@ import type { LatticeConfig, PipelineInstance } from "../schema/index.js";
 import { type DiscoveredSkill, type ScoringProvider, selectSkills } from "../skills/index.js";
 import type { createLogger } from "./logger.js";
 import type { PluginState } from "./state.js";
-import { activeStageSkillKey, type SkillStore } from "./system-transform.js";
+import { type SkillStore, stageSkillKey } from "./system-transform.js";
 
 type Logger = ReturnType<typeof createLogger>;
 
@@ -36,8 +40,8 @@ export async function selectSkillsForStage(
   deps: StageRunnerDeps,
 ): Promise<void> {
   const activeInstance = deps.state.activeInstance;
-  const activeStage = activeInstance?.stages[activeInstance.currentStageIndex];
-  const stageKey = activeStage?.id === stageId ? activeStageSkillKey(activeInstance) : undefined;
+  const activeStage = activeInstance?.stages.find((stage) => stage.id === stageId);
+  const stageKey = activeInstance && activeStage ? stageSkillKey(activeInstance, stageId) : undefined;
 
   const store = (skills: DiscoveredSkill[]) => {
     deps.skillStore.set(sessionId, skills);
@@ -78,6 +82,12 @@ export async function selectSkillsForStage(
   }
 }
 
+interface PreparedAction {
+  action: NonNullable<ReturnType<typeof buildStageAction>>;
+  progress: string;
+  modelOverride: ReturnType<typeof resolveModelOverride>;
+}
+
 /** Execute the pending stage's action — inject prompt or subtask, then mark running. */
 export async function executeStageAction(
   instance: PipelineInstance,
@@ -92,8 +102,7 @@ export async function executeStageAction(
   const dispatchId = await markStageDispatching(instance, deps.engineConfig, parentSessionId);
   if (!dispatchId) return;
 
-  const stageIndex = (instance.stages.findIndex((s) => s.id === action.stageId) ?? 0) + 1;
-  const progress = `[${stageIndex}/${instance.stages.length}]`;
+  const progress = stageProgress(instance, action.stageIndex);
 
   const modelOverride = resolveModelOverride(deps.latticeConfig, action.agent);
   if (modelOverride) {
@@ -107,7 +116,7 @@ export async function executeStageAction(
 
     if (action.type === "inject") {
       await deps.sessions.injectPrompt(parentSessionId, action.agent, action.prompt, modelOverride);
-      seedConfiguredTelemetry(instance, modelOverride);
+      seedConfiguredTelemetry(instance, action.stageIndex, modelOverride);
       await markStageRunning(instance, deps.engineConfig, parentSessionId);
       deps.log.info(`${progress} Stage "${action.stageId}" (agent: ${action.agent})`);
     } else {
@@ -118,18 +127,114 @@ export async function executeStageAction(
         `${progress} Lattice: ${action.stageId}`,
         modelOverride,
       );
-      seedConfiguredTelemetry(instance, modelOverride);
+      seedConfiguredTelemetry(instance, action.stageIndex, modelOverride);
       await markStageRunning(instance, deps.engineConfig, result.sessionId);
+      if (result.sessionId)
+        deps.skillStore.applyStageToSession(stageSkillKey(instance, action.stageId), result.sessionId);
       deps.log.info(`${progress} Subtask "${action.stageId}" (agent: ${action.agent})`);
     }
   } catch (error) {
-    await failDispatch(instance, deps.engineConfig, error);
+    await failDispatch(instance, deps.engineConfig, action.stageIndex, error);
     throw error;
   }
 }
 
-async function failDispatch(instance: PipelineInstance, engineConfig: EngineConfig, error: unknown): Promise<void> {
-  const stage = instance.stages[instance.currentStageIndex];
+export async function executeStageActions(
+  instance: PipelineInstance,
+  parentSessionId: string,
+  pipeline: FlattenedPipeline,
+  deps: StageRunnerDeps,
+): Promise<void> {
+  const effective = await expandRunnableStagesIfNeeded(instance, pipeline, deps.engineConfig);
+  const actions = buildStageActions(instance, effective);
+  if (actions.length === 0) return;
+
+  const prepared: PreparedAction[] = [];
+  for (const action of actions) {
+    const dispatchId = await markStageDispatchingAt(instance, deps.engineConfig, action.stageIndex, parentSessionId);
+    if (!dispatchId) continue;
+
+    const progress = stageProgress(instance, action.stageIndex);
+    const modelOverride = resolveModelOverride(deps.latticeConfig, action.agent);
+    if (modelOverride) {
+      deps.log.info(
+        `${progress} Model override for ${action.agent}: ${modelOverride.providerID}/${modelOverride.modelID}`,
+      );
+    }
+    prepared.push({ action, progress, modelOverride });
+  }
+
+  if (prepared.length === 0) return;
+
+  try {
+    for (const item of prepared) {
+      await selectSkillsForStage(
+        parentSessionId,
+        effective,
+        item.action.stageId,
+        item.action.agent,
+        instance.goal,
+        deps,
+      );
+    }
+
+    const injectActions = prepared.filter((item) => item.action.type === "inject");
+    const subtaskActions = prepared.filter((item) => item.action.type === "subtask");
+
+    for (const item of injectActions) {
+      await deps.sessions.injectPrompt(parentSessionId, item.action.agent, item.action.prompt, item.modelOverride);
+      seedConfiguredTelemetry(instance, item.action.stageIndex, item.modelOverride);
+      await markStageRunningAt(instance, deps.engineConfig, item.action.stageIndex, parentSessionId);
+      deps.log.info(`${item.progress} Stage "${item.action.stageId}" (agent: ${item.action.agent})`);
+    }
+
+    if (subtaskActions.length === 1) {
+      const item = subtaskActions[0];
+      if (!item) return;
+      const result = await deps.sessions.injectSubtask(
+        parentSessionId,
+        item.action.agent,
+        item.action.prompt,
+        `${item.progress} Lattice: ${item.action.stageId}`,
+        item.modelOverride,
+      );
+      seedConfiguredTelemetry(instance, item.action.stageIndex, item.modelOverride);
+      await markStageRunningAt(instance, deps.engineConfig, item.action.stageIndex, result.sessionId);
+      if (result.sessionId)
+        deps.skillStore.applyStageToSession(stageSkillKey(instance, item.action.stageId), result.sessionId);
+      deps.log.info(`${item.progress} Subtask "${item.action.stageId}" (agent: ${item.action.agent})`);
+    } else {
+      for (const item of subtaskActions) {
+        const result = await deps.sessions.injectSubtask(
+          parentSessionId,
+          item.action.agent,
+          item.action.prompt,
+          `${item.progress} Lattice: ${item.action.stageId}`,
+          item.modelOverride,
+        );
+        seedConfiguredTelemetry(instance, item.action.stageIndex, item.modelOverride);
+        await markStageRunningAt(instance, deps.engineConfig, item.action.stageIndex, result?.sessionId);
+        if (result?.sessionId) {
+          deps.skillStore.applyStageToSession(stageSkillKey(instance, item.action.stageId), result.sessionId);
+        }
+        deps.log.info(`${item.progress} Subtask "${item.action.stageId}" (agent: ${item.action.agent})`);
+      }
+    }
+  } catch (error) {
+    for (const item of prepared) {
+      await failDispatch(instance, deps.engineConfig, item.action.stageIndex, error);
+    }
+    throw error;
+  }
+}
+
+async function failDispatch(
+  instance: PipelineInstance,
+  engineConfig: EngineConfig,
+  stageIndex: number,
+  error: unknown,
+): Promise<void> {
+  const stage = instance.stages[stageIndex];
   if (stage) {
     stage.status = "failed";
     stage.completedAt = new Date().toISOString();
@@ -138,6 +243,10 @@ async function failDispatch(instance: PipelineInstance, engineConfig: EngineConf
   instance.status = "failed";
   instance.updatedAt = new Date().toISOString();
   await saveInstance(engineConfig.projectDir, instance);
+}
+
+function stageProgress(instance: PipelineInstance, stageIndex: number): string {
+  return `[${stageIndex + 1}/${instance.stages.length}]`;
 }
 
 function mergeSkillsConfig(
@@ -154,11 +263,12 @@ function mergeSkillsConfig(
 
 function seedConfiguredTelemetry(
   instance: PipelineInstance,
+  stageIndex: number,
   modelOverride: ReturnType<typeof resolveModelOverride>,
 ): void {
   if (!modelOverride) return;
 
-  const stage = instance.stages[instance.currentStageIndex];
+  const stage = instance.stages[stageIndex];
   if (!stage) return;
 
   stage.telemetry = {

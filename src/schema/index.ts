@@ -13,6 +13,8 @@ export type { PipelineDefinition } from "./pipeline.js";
 export { pipelineDefinitionSchema } from "./pipeline.js";
 export type {
   CompletionMethod,
+  ParallelEntry,
+  ParallelGroup,
   PauseAfter,
   PipelineRef,
   SignalVerdict,
@@ -22,4 +24,4 @@ export type {
   StageDefinition,
   StageEntry,
 } from "./stage.js";
-export { skillsConfigSchema, stageDefinitionSchema, stageEntrySchema } from "./stage.js";
+export { parallelEntrySchema, skillsConfigSchema, stageDefinitionSchema, stageEntrySchema } from "./stage.js";

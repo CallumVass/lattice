@@ -38,15 +38,21 @@ async function ensureLatticeGitignored(projectDir: string): Promise<void> {
 }
 
 async function recoverDispatchingInstance(projectDir: string, instance: PipelineInstance): Promise<PipelineInstance> {
-  const stage = instance.stages[instance.currentStageIndex];
-  if (!stage || stage.status !== "dispatching") return instance;
+  const dispatching = instance.stages.filter((stage) => stage.status === "dispatching");
+  if (dispatching.length === 0) return instance;
 
-  stage.status = "pending";
-  stage.summary = undefined;
+  for (const stage of dispatching) {
+    stage.status = "pending";
+    stage.summary = undefined;
+  }
+  const stage = dispatching[0];
   const pause = {
     kind: "stuck" as const,
-    stageId: stage.id,
-    reason: `Stage "${stage.id}" was interrupted while dispatching and can be restarted with /lattice retry.`,
+    stageId: stage?.id ?? "?",
+    reason:
+      dispatching.length === 1
+        ? `Stage "${stage?.id ?? "?"}" was interrupted while dispatching and can be restarted with /lattice retry.`
+        : `${dispatching.length} parallel stages were interrupted while dispatching and can be restarted with /lattice retry.`,
   };
   instance.status = "paused";
   instance.pause = pause;

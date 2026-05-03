@@ -2,16 +2,20 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { pipeline, stage } from "../builder/index.js";
+import { parallel, pipeline, stage } from "../builder/index.js";
 import type { LatticeConfig } from "../schema/index.js";
 import type { EngineConfig } from "./engine.js";
 import {
   advancePipeline,
+  advancePipelineAt,
   buildStageAction,
+  buildStageActions,
   checkStageCompletion,
+  checkStageCompletionAt,
   effectivePipeline,
   expandCurrentStageIfNeeded,
   markStageRunning,
+  markStageRunningAt,
   startPipeline,
 } from "./engine.js";
 import { flattenPipeline } from "./flattener.js";
@@ -115,6 +119,26 @@ describe("startPipeline + buildStageAction", () => {
 
     const action = buildStageAction(instance, flat);
     expect(action?.type).toBe("inject");
+  });
+
+  it("builds actions for every pending stage in a parallel group", async () => {
+    const p = pipeline("review", {
+      stages: [
+        parallel("reviewers", {
+          stages: [
+            stage("security", { agent: "security-reviewer", completion: "signal", signals: ["complete"] }),
+            stage("quality", { agent: "quality-reviewer", completion: "signal", signals: ["complete"] }),
+          ],
+        }),
+      ],
+    });
+    const flat = flattenPipeline(p, registryOf(p));
+    const { instance } = await startPipeline(flat, "review", engineConfig());
+
+    const actions = buildStageActions(instance, flat);
+
+    expect(actions.map((action) => action.stageId)).toEqual(["security", "quality"]);
+    expect(flat.stages.map((stageDef) => stageDef.parallelGroup?.id)).toEqual(["reviewers", "reviewers"]);
   });
 
   it("skips stages marked in config", async () => {
@@ -364,6 +388,39 @@ describe("advancePipeline", () => {
     const result = await checkAndAdvance(instance, flat, engineConfig());
 
     expect(result.instance.status).toBe("completed");
+  });
+
+  it("waits for every parallel stage before advancing past the group", async () => {
+    const p = pipeline("review", {
+      stages: [
+        parallel("reviewers", {
+          stages: [
+            stage("security", { agent: "security-reviewer", completion: "signal", signals: ["complete"] }),
+            stage("quality", { agent: "quality-reviewer", completion: "signal", signals: ["complete"] }),
+          ],
+        }),
+        stage("verdict", { agent: "review-orchestrator", completion: "signal", signals: ["pass", "fail"] }),
+      ],
+    });
+    const flat = flattenPipeline(p, registryOf(p));
+    const { instance } = await startPipeline(flat, "review", engineConfig());
+    await markStageRunningAt(instance, engineConfig(), 0, "child-security");
+    await markStageRunningAt(instance, engineConfig(), 1, "child-quality");
+
+    await writeSignal("security", "complete", "security done");
+    const firstCompletion = await checkStageCompletionAt(instance, flat, engineConfig(), 0);
+    const firstResult = await advancePipelineAt(instance, flat, engineConfig(), firstCompletion, 0);
+
+    expect(firstResult.instance.currentStageIndex).toBe(0);
+    expect(firstResult.instance.stages[0]?.status).toBe("completed");
+    expect(firstResult.instance.stages[1]?.status).toBe("running");
+
+    await writeSignal("quality", "complete", "quality done");
+    const secondCompletion = await checkStageCompletionAt(instance, flat, engineConfig(), 1);
+    const secondResult = await advancePipelineAt(instance, flat, engineConfig(), secondCompletion, 1);
+
+    expect(secondResult.instance.currentStageIndex).toBe(2);
+    expect(secondResult.instance.stages[2]?.status).toBe("pending");
   });
 });
 

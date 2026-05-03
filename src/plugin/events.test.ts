@@ -22,6 +22,9 @@ let projectDir: string;
 const NO_OP_SESSIONS: SessionProvider = {
   injectPrompt: vi.fn(async () => {}),
   injectSubtask: vi.fn(async () => ({})),
+  injectSubtasks: vi.fn<SessionProvider["injectSubtasks"]>(async (sessionId, subtasks) =>
+    subtasks.map((_, index) => ({ sessionId: `${sessionId}-child-${index + 1}` })),
+  ),
   notify: vi.fn(async () => {}),
   getLastAssistantMessage: vi.fn(async () => ""),
 };
@@ -260,6 +263,9 @@ describe("session.idle pipeline progression", () => {
     const sessions: SessionProvider = {
       injectPrompt: vi.fn(async () => {}),
       injectSubtask: vi.fn(async () => {
+        throw new Error("subtask failed");
+      }),
+      injectSubtasks: vi.fn(async () => {
         throw new Error("subtask failed");
       }),
       notify: vi.fn(async () => {}),

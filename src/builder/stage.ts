@@ -1,6 +1,7 @@
 // pattern: Functional Core
 
 import type {
+  ParallelEntry,
   PauseAfter,
   PipelineRef,
   SignalVerdict,
@@ -9,7 +10,7 @@ import type {
   StageContext,
   StageDefinition,
 } from "../schema/index.js";
-import { stageDefinitionSchema } from "../schema/index.js";
+import { parallelEntrySchema, stageDefinitionSchema } from "../schema/index.js";
 
 interface BaseStageOptions {
   agent: string;
@@ -43,6 +44,11 @@ export interface SignalStageOptions extends BaseStageOptions {
 
 export type StageOptions = IdleStageOptions | SignalStageOptions;
 
+export interface ParallelOptions {
+  stages: StageDefinition[];
+  maxConcurrency?: number;
+}
+
 export function stage(id: string, options: StageOptions): StageDefinition {
   return stageDefinitionSchema.parse({
     id,
@@ -62,4 +68,13 @@ export function stage(id: string, options: StageOptions): StageDefinition {
 
 export function ref(name: string): PipelineRef {
   return { type: "pipeline", pipeline: name };
+}
+
+export function parallel(id: string, options: ParallelOptions): ParallelEntry {
+  return parallelEntrySchema.parse({
+    type: "parallel",
+    id,
+    stages: options.stages,
+    ...(options.maxConcurrency !== undefined && { maxConcurrency: options.maxConcurrency }),
+  });
 }

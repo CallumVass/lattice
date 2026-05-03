@@ -20,15 +20,16 @@ The goal can be free text, an issue number, or a URL — it's passed straight th
 
 1. `/<pipeline-name> <goal>` invokes `lattice_control` with action `run`.
 2. Lattice creates an instance under `.lattice/state/<id>.json`.
-3. After the control command turn becomes idle, the first stage runs. If `context: "isolated"`, it starts as a cold subtask; if `context: "shared"`, it injects into the current session.
-4. The stage signals its outcome via the `lattice_signal` tool (`complete`, `pass`, `fail`, `blocked`).
-5. Lattice advances to the next stage, or pauses if `pauseAfter: true` or the signal is `fail`/`blocked`. After an isolated subtask completes, the next stage is dispatched from the parent session's next idle event rather than from the child session.
+3. After the control command turn becomes idle, the first stage or parallel group runs. If `context: "isolated"`, a stage starts as a cold subtask; if `context: "shared"`, it injects into the current session.
+4. Each active stage signals its outcome via the `lattice_signal` tool (`complete`, `pass`, `fail`, `blocked`).
+5. Lattice advances to the next stage, or pauses if `pauseAfter: true` or the signal is `fail`/`blocked`. A parallel group advances only after every member completes. After isolated subtasks complete, the following non-group stage is dispatched from the parent session's next idle event rather than from a child session.
 6. When the last stage signals `complete`, the pipeline completes and the active instance is cleared.
 
 ## Stage Context
 
 - **Isolated stage** (`context: "isolated"`): starts fresh to avoid inheriting earlier reasoning — used for adversarial independence (reviewers, judges). This is the default.
 - **Shared stage** (`context: "shared"`): keeps earlier context to avoid re-reading the repo — used for implementation stages that benefit from prior exploration.
+- **Parallel group** (`parallel("id", { stages })`): starts multiple isolated stages together and joins after all of them complete. Use this for reviewer swarms, independent research slices, or batch checks.
 
 ## When A Pipeline Pauses
 

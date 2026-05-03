@@ -2,7 +2,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { pipeline, stage } from "../builder/index.js";
+import { parallel, pipeline, stage } from "../builder/index.js";
 import {
   type EngineConfig,
   flattenPipeline,
@@ -12,7 +12,7 @@ import {
 } from "../engine/index.js";
 import type { LatticeConfig } from "../schema/index.js";
 import type { DiscoveredSkill, ScoringProvider } from "../skills/index.js";
-import { executeStageAction, selectSkillsForStage } from "./stage-runner.js";
+import { executeStageAction, executeStageActions, selectSkillsForStage } from "./stage-runner.js";
 import type { PluginState } from "./state.js";
 import { activeStageSkillKey, SkillStore } from "./system-transform.js";
 
@@ -21,6 +21,9 @@ let projectDir: string;
 const NO_OP_SESSIONS: SessionProvider = {
   injectPrompt: vi.fn(async () => {}),
   injectSubtask: vi.fn(async () => ({})),
+  injectSubtasks: vi.fn<SessionProvider["injectSubtasks"]>(async (sessionId, subtasks) =>
+    subtasks.map((_, index) => ({ sessionId: `${sessionId}-child-${index + 1}` })),
+  ),
   notify: vi.fn(async () => {}),
   getLastAssistantMessage: vi.fn(async () => ""),
 };
@@ -242,5 +245,44 @@ describe("selectSkillsForStage", () => {
 
     expect(injectPrompt).toHaveBeenCalledOnce();
     expect(instance.stages[0]?.status).toBe("running");
+  });
+
+  it("dispatches parallel isolated stages as separate subtasks", async () => {
+    const def = pipeline("review", {
+      stages: [
+        parallel("reviewers", {
+          stages: [
+            stage("security", { agent: "security-reviewer", completion: "signal", signals: ["complete"] }),
+            stage("quality", { agent: "quality-reviewer", completion: "signal", signals: ["complete"] }),
+          ],
+        }),
+      ],
+    });
+    const registry: PipelineRegistry = new Map([[def.name, def]]);
+    const state = makeState({}, registry);
+    const flat = flattenPipeline(def, registry);
+    const { instance } = await startPipeline(flat, "review diff", state.engineConfig);
+    state.activeInstance = instance;
+    const injectSubtask = vi.fn<SessionProvider["injectSubtask"]>(async (_sessionId, agent) => ({
+      sessionId: agent === "security-reviewer" ? "child-security" : "child-quality",
+    }));
+
+    await executeStageActions(instance, "session-1", flat, {
+      sessions: { ...NO_OP_SESSIONS, injectSubtask },
+      engineConfig: state.engineConfig,
+      latticeConfig: {},
+      discoveredSkills: [],
+      scoringProvider: scoringProvider([]),
+      skillStore: new SkillStore(),
+      state,
+      log: SILENT_LOG,
+    });
+
+    expect(injectSubtask).toHaveBeenCalledTimes(2);
+    expect(injectSubtask.mock.calls.map((call) => call[1])).toEqual(["security-reviewer", "quality-reviewer"]);
+    expect(instance.stages).toMatchObject([
+      { id: "security", status: "running", sessionId: "child-security" },
+      { id: "quality", status: "running", sessionId: "child-quality" },
+    ]);
   });
 });
