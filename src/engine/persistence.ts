@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { type PipelineInstance, pipelineInstanceSchema } from "../schema/index.js";
+import { PIPELINE_INSTANCE_SCHEMA_VERSION, type PipelineInstance, pipelineInstanceSchema } from "../schema/index.js";
 
 const STATE_DIR = ".lattice/state";
 
@@ -13,6 +13,7 @@ export async function saveInstance(projectDir: string, instance: PipelineInstanc
   const dir = join(projectDir, STATE_DIR);
   await mkdir(dir, { recursive: true });
   await ensureLatticeGitignored(projectDir);
+  instance.schemaVersion = PIPELINE_INSTANCE_SCHEMA_VERSION;
   const target = statePath(projectDir, instance.id);
   const temp = `${target}.${process.pid}.${randomUUID()}.tmp`;
   await writeFile(temp, JSON.stringify(instance, null, 2));

@@ -19,6 +19,7 @@ interface BaseStageOptions {
   skills?: Partial<SkillsConfig>;
   prompt?: string;
   pauseAfter?: PauseAfter;
+  expand?: NonNullable<StageDefinition["expand"]>;
   /**
    * Opt this stage in as the rewind target when a downstream stage rejects.
    * If no stage is marked, the rejected stage itself is retried. See
@@ -62,6 +63,7 @@ export function stage(id: string, options: StageOptions): StageDefinition {
     ...(options.completion === "signal" && { signals: options.signals }),
     ...(options.skills && { skills: { dynamic: false, pinned: [], max: 4, ...options.skills } }),
     ...(options.prompt && { prompt: options.prompt }),
+    ...(options.expand && { expand: options.expand }),
     ...(options.maxRewinds !== undefined && { maxRewinds: options.maxRewinds }),
   });
 }

@@ -26,6 +26,8 @@ function makeState(registry: PipelineRegistry, activeInstance?: PipelineInstance
       projectDir,
       latticeConfig: {},
     },
+    pipelineDirs: [join(projectDir, ".opencode", "lattice-pipelines")],
+    diagnostics: [],
   };
 }
 
@@ -47,6 +49,7 @@ function depsBase(state: PluginState) {
     getFlattened: getFlattened(state.registry),
     selectSkillsForStage: vi.fn(async () => {}),
     scheduleCurrentStage: vi.fn(async () => {}),
+    discoveredSkills: [],
     log: {
       info: vi.fn(),
       warn: vi.fn(),
@@ -142,6 +145,44 @@ describe("createLatticeControlTool", () => {
 
     expect(result).toContain('Unknown pipeline "ghost"');
     expect(result).toContain("Available: review");
+  });
+
+  it("shows loaded pipelines when status is idle", async () => {
+    const registry = registryOf(
+      pipeline("review", {
+        stages: [stage("code-review", { agent: "code-reviewer", completion: "signal", signals: ["complete"] })],
+      }),
+    );
+    const state = makeState(registry);
+
+    const result = await createLatticeControlTool(deps(state)).execute({ action: "status" }, toolContext());
+
+    expect(result).toContain("No active pipeline.");
+    expect(result).toContain("Available pipelines: review");
+  });
+
+  it("reports missing pinned skills in doctor output", async () => {
+    const registry = registryOf(
+      pipeline("review", {
+        stages: [
+          stage("code-review", {
+            agent: "code-reviewer",
+            completion: "signal",
+            signals: ["complete"],
+            skills: { pinned: ["security"] },
+          }),
+        ],
+      }),
+    );
+    const state = makeState(registry);
+
+    const result = await createLatticeControlTool(deps(state, { discoveredSkills: [] })).execute(
+      { action: "doctor" },
+      toolContext(),
+    );
+
+    expect(result).toContain("Lattice doctor");
+    expect(result).toContain('Pinned skill "security" was not discovered');
   });
 
   it("formats status output with pause metadata", async () => {

@@ -204,14 +204,19 @@ export async function executeStageActions(
         deps.skillStore.applyStageToSession(stageSkillKey(instance, item.action.stageId), result.sessionId);
       deps.log.info(`${item.progress} Subtask "${item.action.stageId}" (agent: ${item.action.agent})`);
     } else {
-      for (const item of subtaskActions) {
-        const result = await deps.sessions.injectSubtask(
-          parentSessionId,
-          item.action.agent,
-          item.action.prompt,
-          `${item.progress} Lattice: ${item.action.stageId}`,
-          item.modelOverride,
-        );
+      const results = await deps.sessions.injectSubtasks(
+        parentSessionId,
+        subtaskActions.map((item) => ({
+          agent: item.action.agent,
+          prompt: item.action.prompt,
+          description: `${item.progress} Lattice: ${item.action.stageId}`,
+          ...(item.modelOverride && { model: item.modelOverride }),
+        })),
+      );
+      for (let index = 0; index < subtaskActions.length; index++) {
+        const item = subtaskActions[index];
+        if (!item) continue;
+        const result = results[index];
         seedConfiguredTelemetry(instance, item.action.stageIndex, item.modelOverride);
         await markStageRunningAt(instance, deps.engineConfig, item.action.stageIndex, result?.sessionId);
         if (result?.sessionId) {

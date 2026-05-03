@@ -20,38 +20,46 @@ export type StageCompletedContext = z.infer<typeof stageCompletedContextSchema>;
 
 export const pauseAfterSchema = z.union([
   z.boolean(),
-  z.object({
-    prompt: z.string().optional(),
-  }),
+  z
+    .object({
+      prompt: z.string().optional(),
+    })
+    .strict(),
 ]);
 
 export type PauseAfter = z.infer<typeof pauseAfterSchema>;
 
-export const skillsConfigSchema = z.object({
-  dynamic: z.boolean().default(false),
-  pinned: z.array(z.string()).default([]),
-  max: z.number().int().positive().default(4),
-});
+export const skillsConfigSchema = z
+  .object({
+    dynamic: z.boolean().default(false),
+    pinned: z.array(z.string()).default([]),
+    max: z.number().int().positive().default(4),
+  })
+  .strict();
 
 export type SkillsConfig = z.infer<typeof skillsConfigSchema>;
 
-const parallelGroupSchema = z.object({
-  id: z.string().min(1),
-  maxConcurrency: z.number().int().positive().optional(),
-});
+const parallelGroupSchema = z
+  .object({
+    id: z.string().min(1),
+    maxConcurrency: z.number().int().positive().optional(),
+  })
+  .strict();
 
 export type ParallelGroup = z.infer<typeof parallelGroupSchema>;
 
-const stageExpansionSchema = z.object({
-  /** Local project-relative JSON file that contains the expansion manifest. */
-  from: z.string().min(1),
-  /** Dot-separated path to the array inside the manifest, e.g. "slices". */
-  arrayPath: z.string().min(1).default("slices"),
-  /** Maximum number of stages this expansion may insert. */
-  maxItems: z.number().int().positive().max(50).default(8),
-  /** StageDefinition-like template rendered once for each manifest item. */
-  template: z.record(z.string(), z.unknown()),
-});
+const stageExpansionSchema = z
+  .object({
+    /** Local project-relative JSON file that contains the expansion manifest. */
+    from: z.string().min(1),
+    /** Dot-separated path to the array inside the manifest, e.g. "slices". */
+    arrayPath: z.string().min(1).default("slices"),
+    /** Maximum number of stages this expansion may insert. */
+    maxItems: z.number().int().positive().max(50).default(8),
+    /** StageDefinition-like template rendered once for each manifest item. */
+    template: z.record(z.string(), z.unknown()),
+  })
+  .strict();
 
 export const stageDefinitionSchema = z
   .object({
@@ -100,6 +108,7 @@ export const stageDefinitionSchema = z
     /** Runtime metadata added by `parallel(...)` pipeline entries after flattening. */
     parallelGroup: parallelGroupSchema.optional(),
   })
+  .strict()
   .refine((s) => s.completion !== "signal" || (s.signals !== undefined && s.signals.length > 0), {
     message: "`signals` must be a non-empty array when `completion` is 'signal'",
     path: ["signals"],
@@ -111,10 +120,12 @@ export const stageDefinitionSchema = z
 
 export type StageDefinition = z.infer<typeof stageDefinitionSchema>;
 
-export const pipelineRefSchema = z.object({
-  type: z.literal("pipeline"),
-  pipeline: z.string(),
-});
+export const pipelineRefSchema = z
+  .object({
+    type: z.literal("pipeline"),
+    pipeline: z.string(),
+  })
+  .strict();
 
 export type PipelineRef = z.infer<typeof pipelineRefSchema>;
 
@@ -125,6 +136,7 @@ export const parallelEntrySchema = z
     maxConcurrency: z.number().int().positive().optional(),
     stages: z.array(stageDefinitionSchema).min(1),
   })
+  .strict()
   .refine((entry) => entry.stages.every((stage) => stage.context === "isolated"), {
     message: "Parallel stages must use isolated context",
     path: ["stages"],

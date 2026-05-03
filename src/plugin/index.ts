@@ -9,7 +9,7 @@ import { createOpencodeScoringProvider, scanSkills } from "../skills/index.js";
 import { createEventHandler } from "./events.js";
 import { createLogger } from "./logger.js";
 import { executeStageActions, selectSkillsForStage } from "./stage-runner.js";
-import type { PluginState } from "./state.js";
+import type { PluginDiagnostic, PluginState } from "./state.js";
 import { AgentTracker, bindActiveStageSkillsToSession, buildSystemTransform, SkillStore } from "./system-transform.js";
 import { createLatticeControlTool, createLatticeSignalTool } from "./tools.js";
 
@@ -22,9 +22,35 @@ interface CommandRegistrationConfig {
   >;
 }
 
-export function registerLatticeCommands(config: CommandRegistrationConfig, pipelineNames: Iterable<string>): void {
+type CommandConfigEntry = NonNullable<CommandRegistrationConfig["command"]>[string];
+
+interface CommandRegistrationOptions {
+  onDiagnostic?: (diagnostic: PluginDiagnostic) => void;
+}
+
+function isGeneratedPipelineCommand(command: CommandConfigEntry, name: string): boolean {
+  return command.template.includes("lattice_control") && command.template.includes(`pipeline "${name}"`);
+}
+
+function isGeneratedFrameworkCommand(command: CommandConfigEntry): boolean {
+  return command.template.includes("lattice_control") && command.template.includes("Valid actions:");
+}
+
+export function registerLatticeCommands(
+  config: CommandRegistrationConfig,
+  pipelineNames: Iterable<string>,
+  options: CommandRegistrationOptions = {},
+): void {
   config.command = config.command ?? {};
   for (const name of pipelineNames) {
+    const existing = config.command[name];
+    if (existing && !isGeneratedPipelineCommand(existing, name)) {
+      options.onDiagnostic?.({
+        source: "commands",
+        message: `Pipeline command "/${name}" overwrote an existing OpenCode command with the same name.`,
+        pipeline: name,
+      });
+    }
     config.command[name] = {
       description: `Run the ${name} pipeline via lattice`,
       template:
@@ -32,14 +58,30 @@ export function registerLatticeCommands(config: CommandRegistrationConfig, pipel
         "After the tool call returns, stop; do not inspect status, continue, retry, abort, or begin implementation.",
     };
   }
+  if (config.command.lattice && !isGeneratedFrameworkCommand(config.command.lattice)) {
+    options.onDiagnostic?.({
+      source: "commands",
+      message: 'Framework command "/lattice" overwrote an existing OpenCode command with the same name.',
+    });
+  }
   config.command.lattice = {
     description: "Run or control lattice pipelines",
     template:
       "Interpret the first word of `$ARGUMENTS` as a lattice action and call the lattice_control tool. " +
-      "Valid actions: status, run <pipeline> <goal>, continue [message], retry [message], accept [reason], abort, reset. " +
+      "Valid actions: status, doctor, run <pipeline> <goal>, continue [message], retry [message], accept [reason], abort, reset. " +
       "For run, pass the pipeline and remaining text as goal. For continue/retry, pass remaining text as response. For accept, pass remaining text as reason. " +
       "After the tool call returns, stop; do not take follow-up pipeline actions unless the user explicitly asked for them.",
   };
+}
+
+function diagnosticKey(diagnostic: PluginDiagnostic): string {
+  return [diagnostic.source, diagnostic.file, diagnostic.pipeline, diagnostic.stage, diagnostic.message].join("\0");
+}
+
+function recordDiagnostic(state: PluginState, diagnostic: PluginDiagnostic): void {
+  const key = diagnosticKey(diagnostic);
+  if (state.diagnostics.some((existing) => diagnosticKey(existing) === key)) return;
+  state.diagnostics.push(diagnostic);
 }
 
 const server: Plugin = async ({ client, directory }) => {
@@ -49,13 +91,15 @@ const server: Plugin = async ({ client, directory }) => {
     join(directory, ".opencode", PIPELINE_DIR_NAME),
   ];
   const log = createLogger(client);
-  const pipelineDiagnostics: string[] = [];
+  const pipelineDiagnostics: PluginDiagnostic[] = [];
   const registry = await loadPipelines(pipelineDirs, {
-    onDiagnostic: (diagnostic) => pipelineDiagnostics.push(`${diagnostic.file}: ${diagnostic.message}`),
+    onDiagnostic: (diagnostic) => pipelineDiagnostics.push({ source: "pipeline", ...diagnostic }),
   });
   const sessions = createOpencodeSessionProvider(client, directory);
   const scoringProvider = createOpencodeScoringProvider(client, directory);
-  for (const diagnostic of pipelineDiagnostics) log.warn(`Pipeline load skipped: ${diagnostic}`);
+  for (const diagnostic of pipelineDiagnostics) {
+    log.warn(`Pipeline load skipped: ${diagnostic.file}: ${diagnostic.message}`);
+  }
 
   const agentTracker = new AgentTracker();
   const skillStore = new SkillStore();
@@ -71,6 +115,8 @@ const server: Plugin = async ({ client, directory }) => {
     activeInstance: await findActiveInstance(directory),
     parentSessionId: undefined,
     engineConfig: { projectDir: directory, latticeConfig },
+    pipelineDirs,
+    diagnostics: [...pipelineDiagnostics],
   };
   state.parentSessionId = state.activeInstance?.parentSessionId;
 
@@ -84,7 +130,10 @@ const server: Plugin = async ({ client, directory }) => {
       // mid-session, plugin-state resets, and transient registry corruption
       // (the case that stranded PR #480 mid-run with "Pipeline not found").
       const refreshed = await loadPipelines(pipelineDirs, {
-        onDiagnostic: (diagnostic) => log.warn(`Pipeline load skipped: ${diagnostic.file}: ${diagnostic.message}`),
+        onDiagnostic: (diagnostic) => {
+          log.warn(`Pipeline load skipped: ${diagnostic.file}: ${diagnostic.message}`);
+          recordDiagnostic(state, { source: "pipeline", ...diagnostic });
+        },
       });
       state.registry = refreshed;
       state.flattenedCache.clear();
@@ -120,6 +169,16 @@ const server: Plugin = async ({ client, directory }) => {
     return selectSkillsForStage(sessionId, flat, stageId, agent, goal, stageRunnerDeps);
   };
 
+  let transitionQueue = Promise.resolve();
+  const runExclusive = async <T>(work: () => Promise<T>): Promise<T> => {
+    const run = transitionQueue.catch(() => {}).then(work);
+    transitionQueue = run.then(
+      () => {},
+      () => {},
+    );
+    return run;
+  };
+
   let scheduleQueue = Promise.resolve();
   const scheduleCurrentStage = async () => {
     const run = scheduleQueue
@@ -139,8 +198,22 @@ const server: Plugin = async ({ client, directory }) => {
     await run;
   };
 
-  const toolDeps = { state, getFlattened, selectSkillsForStage: selectSkillsForActiveStage, scheduleCurrentStage, log };
-  const eventHandler = createEventHandler({ ...stageRunnerDeps, state, getFlattened, scheduleCurrentStage });
+  const toolDeps = {
+    state,
+    getFlattened,
+    selectSkillsForStage: selectSkillsForActiveStage,
+    scheduleCurrentStage,
+    discoveredSkills,
+    runExclusive,
+    log,
+  };
+  const eventHandler = createEventHandler({
+    ...stageRunnerDeps,
+    state,
+    getFlattened,
+    scheduleCurrentStage,
+    runExclusive,
+  });
 
   const trackSessionAgent = (sessionID: string | undefined, agent: string | undefined) => {
     if (!sessionID || !agent) return;
@@ -155,7 +228,9 @@ const server: Plugin = async ({ client, directory }) => {
     },
 
     async config(config) {
-      registerLatticeCommands(config, state.registry.keys());
+      registerLatticeCommands(config, state.registry.keys(), {
+        onDiagnostic: (diagnostic) => recordDiagnostic(state, diagnostic),
+      });
     },
 
     "chat.message": async (input) => {

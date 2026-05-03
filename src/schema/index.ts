@@ -8,7 +8,7 @@ export type {
   StageStatus,
   StageTelemetry,
 } from "./instance.js";
-export { pipelineInstanceSchema } from "./instance.js";
+export { PIPELINE_INSTANCE_SCHEMA_VERSION, pipelineInstanceSchema } from "./instance.js";
 export type { PipelineDefinition } from "./pipeline.js";
 export { pipelineDefinitionSchema } from "./pipeline.js";
 export type {

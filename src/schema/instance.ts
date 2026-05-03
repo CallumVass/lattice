@@ -1,6 +1,8 @@
 import { z } from "zod/v4";
 import { stageDefinitionSchema } from "./stage.js";
 
+export const PIPELINE_INSTANCE_SCHEMA_VERSION = 1;
+
 const stageStatusSchema = z.enum(["pending", "dispatching", "running", "completed", "rejected", "skipped", "failed"]);
 
 export type StageStatus = z.infer<typeof stageStatusSchema>;
@@ -61,6 +63,8 @@ const pipelinePauseSchema = z.object({
 export type PipelinePause = z.infer<typeof pipelinePauseSchema>;
 
 export const pipelineInstanceSchema = z.object({
+  /** Persisted-state schema version. Missing means legacy v1 state. */
+  schemaVersion: z.literal(PIPELINE_INSTANCE_SCHEMA_VERSION).optional(),
   id: z.string(),
   pipelineName: z.string(),
   goal: z.string(),

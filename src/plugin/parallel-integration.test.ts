@@ -43,6 +43,8 @@ function makeState(registry: PipelineRegistry, latticeConfig: LatticeConfig = {}
     activeInstance: undefined,
     parentSessionId: undefined,
     engineConfig,
+    pipelineDirs: [join(projectDir, ".opencode", "lattice-pipelines")],
+    diagnostics: [],
   };
 }
 
@@ -105,14 +107,17 @@ describe("parallel review integration", () => {
     const state = makeState(registry);
     const flattened = getFlattened(registry);
     const injectPrompt = vi.fn<SessionProvider["injectPrompt"]>(async () => {});
-    const injectSubtask = vi.fn<SessionProvider["injectSubtask"]>(async (_sessionId, agent) => ({
-      sessionId: agent === "security-reviewer" ? "child-security" : "child-quality",
-    }));
+    const injectSubtask = vi.fn<SessionProvider["injectSubtask"]>(async () => ({}));
+    const injectSubtasks = vi.fn<SessionProvider["injectSubtasks"]>(async (_sessionId, subtasks) =>
+      subtasks.map((subtask) => ({
+        sessionId: subtask.agent === "security-reviewer" ? "child-security" : "child-quality",
+      })),
+    );
     const notify = vi.fn<SessionProvider["notify"]>(async () => {});
     const sessions: SessionProvider = {
       injectPrompt,
       injectSubtask,
-      injectSubtasks: vi.fn(async () => []),
+      injectSubtasks,
       notify,
       getLastAssistantMessage: vi.fn(async () => ""),
     };
@@ -144,8 +149,12 @@ describe("parallel review integration", () => {
 
     await fireIdle(eventHandler, "parent");
 
-    expect(injectSubtask).toHaveBeenCalledTimes(2);
-    expect(injectSubtask.mock.calls.map((call) => call[1])).toEqual(["security-reviewer", "quality-reviewer"]);
+    expect(injectSubtask).not.toHaveBeenCalled();
+    expect(injectSubtasks).toHaveBeenCalledOnce();
+    expect(injectSubtasks.mock.calls[0]?.[1].map((subtask) => subtask.agent)).toEqual([
+      "security-reviewer",
+      "quality-reviewer",
+    ]);
     expect(state.activeInstance?.stages).toMatchObject([
       { id: "security", status: "running", sessionId: "child-security" },
       { id: "quality", status: "running", sessionId: "child-quality" },

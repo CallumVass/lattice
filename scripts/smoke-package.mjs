@@ -27,15 +27,49 @@ try {
   await writeFile(
     join(temp, "index.mjs"),
     [
+      'import rootPlugin, { pipeline as rootPipeline, stage as rootStage } from "@callumvass/lattice";',
       'import plugin from "@callumvass/lattice/plugin";',
       'import { pipeline, stage } from "@callumvass/lattice/builder";',
       'import { pipelineDefinitionSchema } from "@callumvass/lattice/schema";',
       'const definition = pipeline("smoke", { stages: [stage("run", { agent: "builder", completion: "idle" })] });',
+      'const rootDefinition = rootPipeline("root-smoke", { stages: [rootStage("run", { agent: "builder", completion: "idle" })] });',
+      'if (!rootPlugin?.id) throw new Error("root plugin export missing");',
       'if (!plugin?.id) throw new Error("plugin export missing");',
       'pipelineDefinitionSchema.parse(definition);',
+      'pipelineDefinitionSchema.parse(rootDefinition);',
     ].join("\n"),
   );
   run(process.execPath, [join(temp, "index.mjs")]);
+
+  const project = join(temp, "project");
+  await mkdir(join(project, ".opencode", "lattice-pipelines"), { recursive: true });
+  await mkdir(join(temp, "home"), { recursive: true });
+  await writeFile(
+    join(project, ".opencode", "lattice-pipelines", "quick-smoke.js"),
+    [
+      'import { pipeline, stage } from "@callumvass/lattice/builder";',
+      'export default pipeline("quick-smoke", {',
+      '  stages: [stage("run", { agent: "builder", completion: "idle" })],',
+      '});',
+    ].join("\n"),
+  );
+  await writeFile(
+    join(temp, "plugin-load.mjs"),
+    [
+      'import plugin from "@callumvass/lattice";',
+      `process.env.HOME = ${JSON.stringify(join(temp, "home"))};`,
+      'const calls = [];',
+      'const client = {',
+      '  app: { log: async (input) => calls.push(input) },',
+      '  session: {},',
+      '};',
+      `const server = await plugin.server({ client, directory: ${JSON.stringify(project)} });`,
+      'const config = {};',
+      'await server.config(config);',
+      'if (!config.command?.["quick-smoke"]) throw new Error("pipeline command missing");',
+    ].join("\n"),
+  );
+  run(process.execPath, [join(temp, "plugin-load.mjs")]);
 
   await mkdir(join(temp, "src"));
   await writeFile(

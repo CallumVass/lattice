@@ -58,6 +58,8 @@ function makeState(latticeConfig: LatticeConfig, registry: PipelineRegistry): Pl
     activeInstance: undefined,
     parentSessionId: "session-1",
     engineConfig,
+    pipelineDirs: [join(projectDir, ".opencode", "lattice-pipelines")],
+    diagnostics: [],
   };
 }
 
@@ -263,12 +265,14 @@ describe("selectSkillsForStage", () => {
     const flat = flattenPipeline(def, registry);
     const { instance } = await startPipeline(flat, "review diff", state.engineConfig);
     state.activeInstance = instance;
-    const injectSubtask = vi.fn<SessionProvider["injectSubtask"]>(async (_sessionId, agent) => ({
-      sessionId: agent === "security-reviewer" ? "child-security" : "child-quality",
-    }));
+    const injectSubtasks = vi.fn<SessionProvider["injectSubtasks"]>(async (_sessionId, subtasks) =>
+      subtasks.map((subtask) => ({
+        sessionId: subtask.agent === "security-reviewer" ? "child-security" : "child-quality",
+      })),
+    );
 
     await executeStageActions(instance, "session-1", flat, {
-      sessions: { ...NO_OP_SESSIONS, injectSubtask },
+      sessions: { ...NO_OP_SESSIONS, injectSubtasks },
       engineConfig: state.engineConfig,
       latticeConfig: {},
       discoveredSkills: [],
@@ -278,8 +282,11 @@ describe("selectSkillsForStage", () => {
       log: SILENT_LOG,
     });
 
-    expect(injectSubtask).toHaveBeenCalledTimes(2);
-    expect(injectSubtask.mock.calls.map((call) => call[1])).toEqual(["security-reviewer", "quality-reviewer"]);
+    expect(injectSubtasks).toHaveBeenCalledOnce();
+    expect(injectSubtasks.mock.calls[0]?.[1].map((subtask) => subtask.agent)).toEqual([
+      "security-reviewer",
+      "quality-reviewer",
+    ]);
     expect(instance.stages).toMatchObject([
       { id: "security", status: "running", sessionId: "child-security" },
       { id: "quality", status: "running", sessionId: "child-quality" },

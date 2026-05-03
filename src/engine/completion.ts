@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import type { CompletionMethod, SignalVerdict } from "../schema/index.js";
+import { signalVerdictSchema } from "../schema/stage.js";
 
 export interface CompletionContext {
   signalsDir: string;
@@ -44,7 +45,8 @@ async function checkSignal(ctx: CompletionContext): Promise<CompletionResult> {
     }
   }
 
-  const signal = JSON.parse(raw) as Signal;
+  const signal = parseSignal(raw);
+  if (!signal) return INCOMPLETE;
 
   if (signal.status === "pass") {
     return { complete: true, verdict: "pass", signal: "pass", summary: signal.reason ?? "Passed" };
@@ -57,6 +59,25 @@ async function checkSignal(ctx: CompletionContext): Promise<CompletionResult> {
   }
 
   return { complete: true, signal: "complete", summary: signal.reason ?? "Stage signalled completion" };
+}
+
+function parseSignal(raw: string): Signal | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+
+  if (!parsed || typeof parsed !== "object") return undefined;
+  const data = parsed as Record<string, unknown>;
+  const status = signalVerdictSchema.safeParse(data.status);
+  if (!status.success) return undefined;
+
+  return {
+    status: status.data,
+    ...(typeof data.reason === "string" && { reason: data.reason }),
+  };
 }
 
 const checkers: Record<CompletionMethod, Checker> = {

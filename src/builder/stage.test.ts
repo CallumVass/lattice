@@ -92,6 +92,41 @@ describe("stage", () => {
 
     expect(s.prompt).toBe("Plan the implementation of {{goal}}");
   });
+
+  it("creates a stage with dynamic expansion config", () => {
+    const s = stage("build-slices", {
+      agent: "implementor",
+      completion: "signal",
+      signals: ["complete", "blocked"],
+      expand: {
+        from: ".lattice/slices.json",
+        arrayPath: "slices",
+        maxItems: 8,
+        template: {
+          id: "build-{{position}}-{{id}}",
+          type: "stage",
+          agent: "implementor",
+          completion: "signal",
+          signals: ["complete", "blocked"],
+          context: "isolated",
+        },
+      },
+    });
+
+    expect(s.expand).toEqual({
+      from: ".lattice/slices.json",
+      arrayPath: "slices",
+      maxItems: 8,
+      template: {
+        id: "build-{{position}}-{{id}}",
+        type: "stage",
+        agent: "implementor",
+        completion: "signal",
+        signals: ["complete", "blocked"],
+        context: "isolated",
+      },
+    });
+  });
 });
 
 describe("ref", () => {

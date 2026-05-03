@@ -2,7 +2,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { PipelineInstance } from "../schema/index.js";
+import { PIPELINE_INSTANCE_SCHEMA_VERSION, type PipelineInstance } from "../schema/index.js";
 import { findActiveInstance, saveInstance } from "./persistence.js";
 
 let projectDir: string;
@@ -87,5 +87,27 @@ describe("persistence", () => {
     await saveInstance(projectDir, makeInstance());
 
     await expect(readFile(join(projectDir, ".gitignore"), "utf-8")).resolves.toContain(".lattice/");
+  });
+
+  it("writes the current state schema version", async () => {
+    await saveInstance(projectDir, makeInstance());
+
+    const persisted = JSON.parse(await readFile(join(projectDir, ".lattice", "state", "run-1.json"), "utf-8")) as {
+      schemaVersion?: number;
+    };
+    expect(persisted.schemaVersion).toBe(PIPELINE_INSTANCE_SCHEMA_VERSION);
+  });
+
+  it("loads legacy unversioned state as v1", async () => {
+    await mkdir(join(projectDir, ".lattice", "state"), { recursive: true });
+    await writeFile(
+      join(projectDir, ".lattice", "state", "legacy.json"),
+      JSON.stringify(makeInstance({ id: "legacy" })),
+    );
+
+    const active = await findActiveInstance(projectDir);
+
+    expect(active?.id).toBe("legacy");
+    expect(active?.schemaVersion).toBeUndefined();
   });
 });

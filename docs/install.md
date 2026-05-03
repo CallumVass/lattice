@@ -86,8 +86,10 @@ After building from source, point OpenCode at the built plugin file:
 
 ## Verify It Loaded
 
-Inside OpenCode, the `/lattice` framework command should exist. Use `/lattice status` to verify the plugin is active.
+Inside OpenCode, the `/lattice` framework command should exist. Use `/lattice status` to verify the plugin is active and `/lattice doctor` to inspect pipeline loading diagnostics.
 
 Any pipeline you drop into the discovery paths also appears as a slash command with its pipeline `name`.
+
+If a pipeline command is missing, run `/lattice doctor` first. It prints the pipeline search paths and any import/schema errors for skipped files.
 
 If you change Lattice itself, rebuild with `npm run build`.

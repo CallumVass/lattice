@@ -15,6 +15,8 @@ Lattice persists runtime data in `.lattice/` inside the target project.
 
 Pipelines can write any other files they need (e.g. plans, drafts) under `.lattice/` or wherever their stage prompts direct.
 
+New state files include `schemaVersion: 1`. Existing unversioned state files are treated as legacy v1 state and still load.
+
 When a pipeline uses dynamic stage expansion, the persisted instance also records `runtimeStages`. This is the expanded stage list for that run only, so retries and checkpoints continue against the generated stages instead of re-reading the original placeholder definition.
 
 When a pipeline uses `parallel(...)`, Lattice flattens the group into normal stage instances annotated with runtime `parallelGroup` metadata on `runtimeStages` or the flattened pipeline definition. Each member still has its own `StageInstance`, `sessionId`, signal file, and telemetry.
@@ -55,6 +57,8 @@ Attribution rules:
 - If a stage has an agent model override, Lattice seeds `configuredModel` and `configuredProvider` from that override and keeps `model` and `provider` pinned to the configured values. Later message metadata is recorded separately as `observedModel` and `observedProvider`.
 - If observed message metadata differs from a configured model override, Lattice logs a warning so users can spot provider fallback or alias resolution while preserving both configured and observed values.
 - Retries accumulate onto the same stage's telemetry — they add to total cost/time, matching what a user actually paid.
+
+`/lattice status` shows aggregate message, token, and cost totals for the active run. The full per-stage telemetry remains in `.lattice/state/<id>.json`.
 
 ## Retry Behavior
 

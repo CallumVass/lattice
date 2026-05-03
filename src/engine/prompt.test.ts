@@ -48,14 +48,14 @@ describe("composePrompt", () => {
     expect(prompt).not.toContain("lattice_signal");
   });
 
-  it("substitutes {{goal}} inside the stage prompt", () => {
+  it("substitutes every {{goal}} inside the stage prompt", () => {
     const p = pipeline("x", {
       stages: [
         stage("s", {
           agent: "a",
           completion: "signal",
           signals: ["complete"],
-          prompt: "Work on {{goal}} now.",
+          prompt: "Work on {{goal}} now. Then verify {{goal}}.",
         }),
       ],
     });
@@ -65,7 +65,7 @@ describe("composePrompt", () => {
       currentStage: p.stages[0] as Extract<(typeof p.stages)[number], { type: "stage" }>,
     });
 
-    expect(prompt).toContain("Work on feature-42 now.");
+    expect(prompt).toContain("Work on feature-42 now. Then verify feature-42.");
   });
 
   it("omits completed stages when completedContext is none", () => {
