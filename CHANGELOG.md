@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.6.0](https://github.com/CallumVass/lattice/compare/lattice-v3.5.0...lattice-v3.6.0) (2026-05-03)
+
+
+### Features
+
+* **plugin:** add pipeline diagnostics and harden execution ([572bfa0](https://github.com/CallumVass/lattice/commit/572bfa0237a5c91f0b43fa03ec9588105d5bad01))
+
 ## [3.5.0](https://github.com/CallumVass/lattice/compare/lattice-v3.4.3...lattice-v3.5.0) (2026-05-03)
 
 
