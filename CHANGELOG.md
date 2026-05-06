@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.6.1](https://github.com/CallumVass/lattice/compare/lattice-v3.6.0...lattice-v3.6.1) (2026-05-06)
+
+
+### Bug Fixes
+
+* **plugin:** bind isolated stage signals to child sessions ([9c4a5e4](https://github.com/CallumVass/lattice/commit/9c4a5e4c41589e1eb31db66092b8191515f9234e))
+
 ## [3.6.0](https://github.com/CallumVass/lattice/compare/lattice-v3.5.0...lattice-v3.6.0) (2026-05-03)
 
 
