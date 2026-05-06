@@ -182,8 +182,11 @@ describe("session.idle pipeline progression", () => {
     await fireIdle(handler);
     expect(state.activeInstance?.stages[0]?.status).toBe("running");
 
+    const firstStage = state.activeInstance?.stages[0];
+    if (!firstStage) throw new Error("Expected first stage");
+    firstStage.sessionId = "child-1";
     await writeSignal("first", "complete", "done");
-    await fireIdle(handler);
+    await fireIdle(handler, "child-1");
     await clearSignal("first");
 
     expect(state.activeInstance?.currentStageIndex).toBe(1);
@@ -298,9 +301,12 @@ describe("session.idle pipeline progression", () => {
     state.activeInstance = instance;
 
     await fireIdle(handler);
+    const reviewStage = state.activeInstance?.stages[0];
+    if (!reviewStage) throw new Error("Expected review stage");
+    reviewStage.sessionId = "child-review";
     injectPrompt.mockClear();
     await writeSignal("review", "fail", "needs work");
-    await fireIdle(handler);
+    await fireIdle(handler, "child-review");
 
     expect(state.activeInstance?.status).toBe("paused");
     expect(state.activeInstance?.pause).toMatchObject({ kind: "rejection", stageId: "review" });
@@ -470,7 +476,13 @@ describe("message.updated event handling", () => {
   it("attributes assistant-completed messages to the currently-running stage", async () => {
     const { state, handler } = await primeRunningStage();
 
-    await fireAssistantMessage(handler, { input: 100, output: 50, cost: 0.02 });
+    await fireAssistantMessage(handler, {
+      sessionID: "late-child-session",
+      agent: "planner",
+      input: 100,
+      output: 50,
+      cost: 0.02,
+    });
 
     const stageInstance = state.activeInstance?.stages[0];
     expect(stageInstance?.telemetry).toBeDefined();
@@ -488,6 +500,25 @@ describe("message.updated event handling", () => {
     expect(state.activeInstance?.stages[0]?.telemetry).toBeUndefined();
   });
 
+  it("binds telemetry when an isolated child session id was not captured at dispatch", async () => {
+    const { state, handler } = await primeRunningStage();
+
+    await fireAssistantMessage(handler, {
+      sessionID: "late-child-session",
+      agent: "planner",
+      input: 123,
+      output: 45,
+      cost: 0.03,
+    });
+
+    const stageInstance = state.activeInstance?.stages[0];
+    expect(stageInstance?.sessionId).toBe("late-child-session");
+    expect(stageInstance?.telemetry?.tokensIn).toBe(123);
+    expect(stageInstance?.telemetry?.tokensOut).toBe(45);
+    expect(stageInstance?.telemetry?.costUSD).toBeCloseTo(0.03);
+    expect(stageInstance?.telemetry?.messageCount).toBe(1);
+  });
+
   it("seeds running stage telemetry from configured model override", async () => {
     const registry = registryOf(oneStage);
     const state = makeState({ agents: { planner: { model: "opencode-go/deepseek-v4-pro" } } }, registry);
@@ -498,7 +529,12 @@ describe("message.updated event handling", () => {
     state.activeInstance = instance;
 
     await fireIdle(handler);
-    await fireAssistantMessage(handler, { agent: "planner", modelID: "mimo-v2.5", providerID: "opencode-go" });
+    await fireAssistantMessage(handler, {
+      sessionID: "late-child-session",
+      agent: "planner",
+      modelID: "mimo-v2.5",
+      providerID: "opencode-go",
+    });
 
     const telemetry = state.activeInstance?.stages[0]?.telemetry;
     expect(telemetry?.model).toBe("deepseek-v4-pro");

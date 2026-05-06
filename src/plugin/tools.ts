@@ -168,9 +168,13 @@ function parallelGroupRange(
   return { start, end };
 }
 
-function activeStageIndexForSignal(instance: PipelineInstance, context: ToolContext): number | undefined {
+function activeStageIndexForSignal(
+  instance: PipelineInstance,
+  pipeline: FlattenedPipeline,
+  context: ToolContext,
+): number | undefined {
   const active = instance.stages
-    .map((stage, index) => ({ stage, index }))
+    .map((stage, index) => ({ stage, index, stageDef: pipeline.stages[index] }))
     .filter(({ stage }) => stage.status === "running" || stage.status === "dispatching")
     .filter(({ stage }) => !context.agent || stage.agent === context.agent);
 
@@ -178,14 +182,28 @@ function activeStageIndexForSignal(instance: PipelineInstance, context: ToolCont
   if (exact) return exact.index;
 
   const shared = active.find(
-    ({ stage }) =>
+    ({ stage, stageDef }) =>
       !!context.sessionID &&
       context.sessionID === instance.parentSessionId &&
+      stageDef?.context !== "isolated" &&
       (!stage.sessionId || stage.sessionId === instance.parentSessionId),
   );
   if (shared) return shared.index;
 
-  return active.length === 1 ? active[0]?.index : undefined;
+  const unboundChild = active.filter(
+    ({ stage, stageDef }) =>
+      !!context.sessionID &&
+      context.sessionID !== instance.parentSessionId &&
+      !stage.sessionId &&
+      stageDef?.context === "isolated",
+  );
+  if (unboundChild.length === 1) return unboundChild[0]?.index;
+
+  if (!context.sessionID && active.length === 1 && active[0]?.stageDef?.context !== "isolated") {
+    return active[0]?.index;
+  }
+
+  return undefined;
 }
 
 function pausedStageIndex(instance: PipelineInstance): number | undefined {
@@ -605,14 +623,20 @@ export function createLatticeSignalTool(deps: ToolDeps): ToolDefinition {
         if (!instance) return "No active pipeline.";
         if (instance.status !== "running") return `Pipeline is ${instance.status}; no running stage can be signalled.`;
 
-        const stageIndex = activeStageIndexForSignal(instance, context);
+        const flat = effectivePipeline(instance, await deps.getFlattened(instance.pipelineName));
+        const stageIndex = activeStageIndexForSignal(instance, flat, context);
         if (stageIndex === undefined) {
-          const active = instance.stages.filter(
-            (stage) => stage.status === "running" || stage.status === "dispatching",
-          );
-          const only = active.length === 1 ? active[0] : undefined;
+          const active = instance.stages
+            .map((stage, index) => ({ stage, index }))
+            .filter(({ stage }) => stage.status === "running" || stage.status === "dispatching");
+          const onlyEntry = active.length === 1 ? active[0] : undefined;
+          const only = onlyEntry?.stage;
+          const onlyDef = onlyEntry ? flat.stages[onlyEntry.index] : undefined;
           if (only?.sessionId && context.sessionID && context.sessionID !== only.sessionId) {
             return `Signal refused: current stage "${only.id}" is running in session "${only.sessionId}", not "${context.sessionID}".`;
+          }
+          if (onlyDef?.context === "isolated" && context.sessionID === instance.parentSessionId) {
+            return `Signal refused: current stage "${only?.id}" is isolated and must be signalled from its subtask session.`;
           }
           if (only && context.agent && context.agent !== only.agent) {
             return `Signal refused: current stage "${only.id}" uses agent "${only.agent}", not "${context.agent}".`;
@@ -623,8 +647,11 @@ export function createLatticeSignalTool(deps: ToolDeps): ToolDefinition {
         if (!currentStage || (currentStage.status !== "running" && currentStage.status !== "dispatching")) {
           return "No running stage to signal.";
         }
-
-        const flat = effectivePipeline(instance, await deps.getFlattened(instance.pipelineName));
+        if (!currentStage.sessionId && context.sessionID && context.sessionID !== instance.parentSessionId) {
+          currentStage.sessionId = context.sessionID;
+          instance.updatedAt = new Date().toISOString();
+          await saveInstance(deps.state.engineConfig.projectDir, instance);
+        }
         const stageDef = flat.stages[stageIndex];
         if (!stageDef || stageDef.completion !== "signal") {
           return `Signal refused: current stage "${currentStage.id}" does not use signal completion.`;
