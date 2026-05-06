@@ -727,6 +727,29 @@ describe("createLatticeSignalTool", () => {
     expect(JSON.parse(signal)).toEqual({ status: "complete", reason: "quality done" });
   });
 
+  it("refuses parent-session signals for isolated stages without a captured child session", async () => {
+    const definition = pipeline("build", {
+      stages: [stage("apply", { agent: "worker", completion: "signal", signals: ["complete"], context: "isolated" })],
+    });
+    const registry = registryOf(definition);
+    const state = makeState(
+      registry,
+      runningInstance({
+        pipelineName: "build",
+        parentSessionId: "parent-session",
+        stages: [{ id: "apply", agent: "worker", status: "running" }],
+      }),
+    );
+
+    const result = await createLatticeSignalTool(deps(state)).execute(
+      { status: "complete", reason: "stale parent summary" },
+      toolContext({ sessionID: "parent-session", agent: "worker" }),
+    );
+
+    expect(result).toContain("is isolated and must be signalled from its subtask session");
+    await expect(access(join(projectDir, ".lattice", "signals", "run-1", "apply.json"))).rejects.toThrow();
+  });
+
   it("refuses signals from the wrong agent", async () => {
     const definition = pipeline("review", {
       stages: [stage("code-review", { agent: "code-reviewer", completion: "signal", signals: ["complete"] })],

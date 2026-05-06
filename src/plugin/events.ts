@@ -106,13 +106,27 @@ function runningStageIndexForSession(
   if (exact) return exact.index;
 
   const parent = parentSessionId(instance, fallbackSessionId);
-  const shared = running.find(
-    ({ stage }) => !!parent && incomingSessionId === parent && (!stage.sessionId || stage.sessionId === parent),
-  );
+  const shared = running.find(({ stage }) => !!parent && incomingSessionId === parent && stage.sessionId === parent);
   if (shared) return shared.index;
+
+  const unboundChild = running.filter(
+    ({ stage }) => !!agent && !!incomingSessionId && incomingSessionId !== parent && !stage.sessionId,
+  );
+  if (unboundChild.length === 1) return unboundChild[0]?.index;
 
   if (!incomingSessionId && running.length === 1) return running[0]?.index;
   return undefined;
+}
+
+function bindUntrackedChildSession(
+  instance: { parentSessionId?: string },
+  fallbackSessionId: string | undefined,
+  stage: { sessionId?: string },
+  incomingSessionId: string | undefined,
+): void {
+  if (!incomingSessionId || stage.sessionId) return;
+  if (isParentSession(instance, fallbackSessionId, incomingSessionId)) return;
+  stage.sessionId = incomingSessionId;
 }
 
 function hasPendingInSameParallelGroup(
@@ -158,6 +172,7 @@ export function createEventHandler(deps: EventHandlerDeps): EventHandler {
       const stage = instance.stages[stageIndex];
       if (!stage || stage.status !== "running") return;
       if (info.agent && info.agent !== stage.agent) return;
+      bindUntrackedChildSession(instance, deps.state.parentSessionId, stage, incomingSessionId);
 
       if (stage.telemetry?.configuredModel && info.modelID && stage.telemetry.configuredModel !== info.modelID) {
         deps.log.warn(
@@ -248,6 +263,7 @@ async function handleIdle(sessionId: string | undefined, deps: EventHandlerDeps)
 
     const currentStage = instance.stages[stageIndex];
     if (!currentStage) return;
+    bindUntrackedChildSession(instance, deps.state.parentSessionId, currentStage, sessionId);
 
     if (currentStage.status === "dispatching") return;
 
