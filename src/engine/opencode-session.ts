@@ -104,20 +104,27 @@ async function injectSubtaskBatch(
   const startedAt = Date.now();
   const beforeIds = new Set((await childSessions(client, sessionId, directory)).map((session) => session.id));
 
-  const results = await Promise.all(
-    subtasks.map(({ agent, prompt, description, model }) =>
-      client.session.promptAsync({
-        path: { id: sessionId },
-        query: { directory },
-        body: {
-          parts: [{ type: "subtask" as const, prompt, description, agent, ...(model && { model }) }],
-        },
-      }),
-    ),
-  );
-  const failed = results.find((result) => result.error);
-  if (failed?.error) {
-    throw new Error(`Failed to inject subtasks: ${errorMessage(failed.error)}`);
+  // Submit all subtask parts in a single prompt message so opencode can spawn
+  // every child session atomically. Submitting N parallel prompts queues N
+  // separate messages on the parent session; opencode processes them one at a
+  // time, which starved waitForSubtaskSessionIds and left later stages with
+  // undefined sessionIds (the plugin would then orphan their telemetry and
+  // completion signals until the child signalled back and rebound itself).
+  const { error } = await client.session.promptAsync({
+    path: { id: sessionId },
+    query: { directory },
+    body: {
+      parts: subtasks.map(({ agent, prompt, description, model }) => ({
+        type: "subtask" as const,
+        prompt,
+        description,
+        agent,
+        ...(model && { model }),
+      })),
+    },
+  });
+  if (error) {
+    throw new Error(`Failed to inject subtasks: ${errorMessage(error)}`);
   }
 
   const ids = await waitForSubtaskSessionIds(
